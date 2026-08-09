@@ -234,16 +234,14 @@ export const PickupActionModal = ({
         <div className="p-8 pt-0 pb-12 space-y-6 bg-white border-t border-gray-50">
           {!isAtPickup ? (
             <div className="pt-6">
-              <p className={`text-center text-[10px] font-black uppercase tracking-[0.2em] mb-4 transition-colors ${
-                isWithinRange ? 'text-emerald-600' : 'text-orange-500 animate-pulse'
-              }`}>
-                {isWithinRange ? 'Ready - Swipe to confirm arrival' : 'Get closer to restaurant'}
+              <p className="text-center text-[10px] font-black uppercase tracking-[0.2em] mb-4 text-emerald-600">
+                Ready - Swipe to confirm arrival
               </p>
               <ActionSlider 
                 key="action-reach"
                 label="Slide to Reach" 
                 successLabel="Reached!"
-                disabled={!isWithinRange}
+                disabled={false}
                 onConfirm={onReachedPickup}
                 color="bg-emerald-600"
               />

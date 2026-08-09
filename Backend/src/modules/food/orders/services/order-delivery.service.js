@@ -401,6 +401,22 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
     );
   }
 
+  // Block COD accept when remaining cash capacity is below order amount.
+  const orderForCodCheck = await FoodOrder.findOne(identity)
+    .select('payment pricing')
+    .lean();
+  const payMethod = String(orderForCodCheck?.payment?.method || '').toLowerCase();
+  if (payMethod === 'cash' || payMethod === 'cod') {
+    const orderAmount =
+      Number(orderForCodCheck?.pricing?.total) ||
+      Number(orderForCodCheck?.payment?.amountDue) ||
+      0;
+    const { assertPartnerCanAcceptCodOrder } = await import(
+      '../../delivery/services/deliveryFinance.service.js'
+    );
+    await assertPartnerCanAcceptCodOrder(deliveryPartnerId, orderAmount);
+  }
+
   const statusHistoryEntry = {
     byRole: 'DELIVERY_PARTNER',
     byId: partnerId,
@@ -1025,11 +1041,35 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
     note: `Delivery completed. Prev status: ${prevPayStatus}`,
   });
 
+  // Credit rider earning; for COD also raise cash-in-hand (lowers remaining cash limit).
+  const riderEarning = Number(order.riderEarning) || 0;
+  const orderTotal = Number(order.pricing?.total) || Number(order.payment?.amountDue) || 0;
+  const isCod = payMethod === 'cash' || payMethod === 'cod';
+  try {
+    const { applyDeliveryCompletionWalletUpdates } = await import(
+      '../../delivery/services/deliveryFinance.service.js'
+    );
+    await applyDeliveryCompletionWalletUpdates({
+      deliveryPartnerId,
+      riderEarning,
+      orderTotal,
+      isCod,
+    });
+  } catch (walletErr) {
+    logger.warn(
+      `[DeliveryComplete] Wallet update failed for ${order._id}: ${walletErr?.message || walletErr}`,
+    );
+  }
+
   emitOrderUpdate(order, deliveryPartnerId);
   enqueueOrderEvent('delivery_completed', {
     orderMongoId: order._id?.toString?.(),
     orderId: order._id.toString(),
     deliveryPartnerId,
+    restaurantId: order.restaurantId?.toString?.() || order.restaurantId,
+    riderEarning,
+    total: orderTotal,
+    paymentMethod: payMethod,
     payMethod,
     prevPayStatus,
     paymentStatus: order.payment?.status,

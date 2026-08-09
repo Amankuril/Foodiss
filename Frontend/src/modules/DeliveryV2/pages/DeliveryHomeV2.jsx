@@ -1049,7 +1049,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                             <ActionSlider
                               label="Slide to Arrive"
                               successLabel="Arrived ✓"
-                              disabled={!isWithinRange}
+                              disabled={false}
                               onConfirm={reachDrop}
                               color="bg-emerald-600"
                             />

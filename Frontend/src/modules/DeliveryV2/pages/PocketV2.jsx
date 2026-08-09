@@ -416,11 +416,11 @@ export const PocketV2 = () => {
              {codControlEnabled && (
                <button 
                   onClick={() => navigate('/food/delivery/pocket/cash-limit')}
-                  className="w-full p-5 border-b border-gray-50 flex items-center justify-between active:bg-gray-50 transition-colors"
+                  className="w-full p-5 border-b border-gray-50 flex items-center gap-3 active:bg-gray-50 transition-colors"
                >
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
                      <div
-                       className="w-12 h-12 rounded-2xl flex items-center justify-center border"
+                       className="w-12 h-12 rounded-2xl flex items-center justify-center border shrink-0"
                        style={{
                          backgroundColor: "rgba(var(--module-theme-rgb, 0,183,97), 0.10)",
                          color: "var(--module-theme-color, #00B761)",
@@ -429,14 +429,14 @@ export const PocketV2 = () => {
                      >
                         <ShieldCheck className="w-6 h-6" />
                      </div>
-                     <div className="text-left">
-                        <span className="text-sm font-bold text-gray-900 block">Available cash limit</span>
+                     <div className="text-left min-w-0">
+                        <span className="text-sm font-bold text-gray-900 block truncate">Available cash limit</span>
                         <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mt-0.5">Spend Control</p>
                      </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                     <span className="text-base font-black text-gray-900">₹{walletState.availableCashLimit.toFixed(2)}</span>
-                     <ChevronRight className="w-5 h-5 text-gray-300" />
+                  <div className="flex items-center gap-2 shrink-0 pl-2">
+                     <span className="text-base font-black text-gray-900 tabular-nums whitespace-nowrap">₹{walletState.availableCashLimit.toFixed(2)}</span>
+                     <ChevronRight className="w-5 h-5 text-gray-300 shrink-0" />
                   </div>
                </button>
              )}

@@ -2477,9 +2477,20 @@ export default function Cart() {
     }
   }
 
+  useEffect(() => {
+    if (!showOrderSuccess) return
+    // Prefetch track page chunk so "Track Your Order" opens immediately.
+    void import("@food/pages/user/orders/OrderTracking")
+  }, [showOrderSuccess])
+
   const handleGoToOrders = () => {
     setShowOrderSuccess(false)
-    navigate(`/user/orders/${placedOrderId}?confirmed=true`)
+    const id = placedOrderId
+    if (!id) {
+      navigate("/food/user/orders")
+      return
+    }
+    navigate(`/food/user/orders/${id}?confirmed=true`)
   }
 
   // Empty cart state - but don't show if order success or placing order modal is active

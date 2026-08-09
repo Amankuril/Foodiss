@@ -16,6 +16,8 @@ export default function ProtectedRoute({ children, requiredRole, loginPath = "/f
     return isModuleAuthenticated(requiredRole) ? "checking" : "deny";
   });
 
+  // Initial session hydrate only — do not blank the page on every route change
+  // (that made Track Order feel like a full reload).
   useEffect(() => {
     if (!requiredRole) {
       setStatus("ok");
@@ -30,7 +32,6 @@ export default function ProtectedRoute({ children, requiredRole, loginPath = "/f
         return;
       }
 
-      if (!cancelled) setStatus("checking");
       const token = await ensureValidAccessToken(requiredRole);
       if (cancelled) return;
       setStatus(token ? "ok" : "deny");
@@ -41,7 +42,15 @@ export default function ProtectedRoute({ children, requiredRole, loginPath = "/f
     return () => {
       cancelled = true;
     };
-  }, [requiredRole, location.pathname]);
+  }, [requiredRole]);
+
+  // Soft check on navigation: never flip back to "checking" (unmounts the page).
+  useEffect(() => {
+    if (!requiredRole || status !== "ok") return;
+    if (!isModuleAuthenticated(requiredRole)) {
+      setStatus("deny");
+    }
+  }, [requiredRole, location.pathname, status]);
 
   if (!requiredRole) {
     return children;

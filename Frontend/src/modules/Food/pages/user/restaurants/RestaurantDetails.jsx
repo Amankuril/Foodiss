@@ -72,7 +72,39 @@ const debugError = (...args) => {}
 
 const FOOD_IMAGE_FALLBACK = "https://picsum.photos/seed/food-fallback/800/600"
 const RUPEE_SYMBOL = "\u20B9"
-const RESTAURANT_DETAILS_FILTERS_STORAGE_KEY = "food-restaurant-details-filters"
+const DEFAULT_MENU_FILTERS = {
+  sortBy: null,
+  vegNonVeg: null,
+  highlyReordered: false,
+  spicy: false,
+}
+
+const resolveItemFoodType = (item = {}) => {
+  const raw = item.foodType
+  if (typeof raw === "string" && raw.trim()) {
+    const normalized = raw.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ")
+    if (
+      normalized === "veg" ||
+      normalized === "vegetarian" ||
+      normalized === "pure veg" ||
+      normalized === "pureveg"
+    ) {
+      return "Veg"
+    }
+    if (
+      normalized === "non veg" ||
+      normalized === "nonveg" ||
+      normalized === "non vegetarian" ||
+      normalized === "egg" ||
+      normalized === "eggetarian"
+    ) {
+      return "Non-Veg"
+    }
+  }
+  if (item.isVeg === true) return "Veg"
+  if (item.isVeg === false) return "Non-Veg"
+  return "Non-Veg"
+}
 
 const resolveRestaurantImageUrl = (image) => {
   if (!image) return null
@@ -164,51 +196,23 @@ function RestaurantDetailsContent() {
 
   const isVegDish = (item) => {
     if (!item || typeof item !== "object") return false
-    if (item.isVeg === true) return true
-    const foodType = String(item.foodType || "").trim().toLowerCase()
-    return foodType === "veg" || foodType === "vegetarian"
+    return resolveItemFoodType(item) === "Veg"
   }
 
-  // Initialize filters from localStorage if available
-  const [filters, setFilters] = useState(() => {
-    if (typeof window === "undefined" || !slug) {
-      return {
-        sortBy: null,
-        vegNonVeg: null,
-        highlyReordered: false,
-        spicy: false,
-      }
-    }
-    try {
-      const raw = window.localStorage.getItem(RESTAURANT_DETAILS_FILTERS_STORAGE_KEY)
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        const savedFilters = parsed?.[slug]
-        if (savedFilters && typeof savedFilters === "object") {
-          return {
-            sortBy:
-              savedFilters.sortBy === "low-to-high" || savedFilters.sortBy === "high-to-low"
-                ? savedFilters.sortBy
-                : null,
-            vegNonVeg:
-              savedFilters.vegNonVeg === "veg" || savedFilters.vegNonVeg === "non-veg"
-                ? savedFilters.vegNonVeg
-                : null,
-            highlyReordered: savedFilters.highlyReordered === true,
-            spicy: savedFilters.spicy === true,
-          }
-        }
-      }
-    } catch (error) {
-      debugWarn("Failed to initialize restaurant filters from localStorage:", error)
-    }
-    return {
-      sortBy: null,
-      vegNonVeg: null,
-      highlyReordered: false,
-      spicy: false,
-    }
-  })
+  // Always start clean per restaurant visit. Persisting filters across visits
+  // was hiding whole menus (e.g. spicy / highly-reordered) with no visible cause.
+  const [filters, setFilters] = useState(() => ({ ...DEFAULT_MENU_FILTERS }))
+  const [filtersOwnerSlug, setFiltersOwnerSlug] = useState(slug)
+
+  // Keep filter state aligned with the current restaurant during the same render
+  // as a slug change (component stays mounted between restaurant navigations).
+  if (slug !== filtersOwnerSlug) {
+    setFiltersOwnerSlug(slug)
+    setFilters({ ...DEFAULT_MENU_FILTERS })
+    setSelectedMenuCategory("all")
+    setSearchQuery("")
+    setShowSearch(false)
+  }
 
   // Restaurant data state
   const [restaurant, setRestaurant] = useState(null)
@@ -236,10 +240,6 @@ function RestaurantDetailsContent() {
       document.removeEventListener("visibilitychange", handleVisibilityChange)
     }
   }, [])
-
-  useEffect(() => {
-    setSelectedMenuCategory("all")
-  }, [slug])
 
   // Fetch restaurant data from API
   useEffect(() => {
@@ -770,16 +770,13 @@ function RestaurantDetailsContent() {
                 const normalizeItem = (item = {}) => {
                    const isRecommended = item.isRecommended === true || item.isRecommended === 1 || String(item.isRecommended) === "true"
                    const isSpicy = item.isSpicy === true || item.isSpicy === 1 || String(item.isSpicy) === "true"
-                   let foodType = item.foodType || "Non-Veg"
-                   if (typeof foodType === 'string') {
-                     if (foodType.toLowerCase() === 'veg') foodType = 'Veg'
-                     else if (foodType.toLowerCase() === 'non-veg' || foodType.toLowerCase() === 'nonveg') foodType = 'Non-Veg'
-                   }
+                   const foodType = resolveItemFoodType(item)
                    return {
                      ...item,
                       id: String(item.id || item._id || `${Date.now()}-${Math.random()}`),
                       name: item.name || "Unnamed Item",
                       foodType,
+                      isVeg: foodType === "Veg",
                       price: getFoodDisplayPrice(item),
                       variants: getFoodVariants(item),
                       variations: getFoodVariants(item),
@@ -885,10 +882,20 @@ function RestaurantDetailsContent() {
                   menuSections: finalMenuSections,
                 }))
 
-                // Set first 3 sections (Recommended, Starters, Main Course) as expanded by default
-                const defaultExpandedSections = new Set(
-                  Array.from({ length: Math.min(3, finalMenuSections.length) }, (_, idx) => idx)
-                )
+                // Expand every section + subsection so dishes are visible immediately.
+                // (Search used to be the only path that expanded matches, which hid the menu.)
+                const defaultExpandedSections = new Set()
+                finalMenuSections.forEach((section, idx) => {
+                  defaultExpandedSections.add(idx)
+                  const subsections = Array.isArray(section?.subsections)
+                    ? section.subsections
+                    : section?.subsections && typeof section.subsections === "object"
+                      ? Object.values(section.subsections)
+                      : []
+                  subsections.forEach((_, subIdx) => {
+                    defaultExpandedSections.add(`${idx}-${subIdx}`)
+                  })
+                })
                 setExpandedSections(defaultExpandedSections)
 
                 debugLog('Fetched menu sections with recommended items:', finalMenuSections)
@@ -1383,20 +1390,6 @@ function RestaurantDetailsContent() {
   }, [vegMode])
 
   useEffect(() => {
-    if (typeof window === "undefined" || !slug) return
-
-    try {
-      const raw = window.localStorage.getItem(RESTAURANT_DETAILS_FILTERS_STORAGE_KEY)
-      const parsed = raw ? JSON.parse(raw) : {}
-      const nextState = parsed && typeof parsed === "object" ? parsed : {}
-      nextState[slug] = filters
-      window.localStorage.setItem(RESTAURANT_DETAILS_FILTERS_STORAGE_KEY, JSON.stringify(nextState))
-    } catch (error) {
-      debugWarn("Failed to persist restaurant filters:", error)
-    }
-  }, [filters, slug])
-
-  useEffect(() => {
     if (selectedMenuCategory === "all") return
     const categoryStillVisible = menuCategories.some((category) => category.id === selectedMenuCategory)
     if (!categoryStillVisible) {
@@ -1683,18 +1676,16 @@ function RestaurantDetailsContent() {
 
       // VegMode filter - when vegMode is ON, show only Veg items
       // When vegMode is false/null/undefined, show all items (Veg and Non-Veg)
-      if (vegMode === true) {
-        if (item.foodType !== "Veg") return false
+      if (vegMode === true && !isVegDish(item)) {
+        return false
       }
 
       // Veg/Non-veg filter (local filter override)
-      if (filters.vegNonVeg === "veg") {
-        // Show only veg items
-        if (item.foodType !== "Veg") return false
+      if (filters.vegNonVeg === "veg" && !isVegDish(item)) {
+        return false
       }
-      if (filters.vegNonVeg === "non-veg") {
-        // Show only non-veg items
-        if (item.foodType !== "Non-Veg") return false
+      if (filters.vegNonVeg === "non-veg" && isVegDish(item)) {
+        return false
       }
 
       if (filters.highlyReordered && !isRecommendedItem(item)) return false
@@ -1854,8 +1845,11 @@ function RestaurantDetailsContent() {
     [restaurant?.menuSections, showOnlyUnder250, searchQuery, vegMode, filters, selectedMenuCategory]
   )
 
+  // Keep every currently visible section/subsection expanded so dishes don't
+  // disappear behind collapsed headers. Search previously triggered this path
+  // (via hasActiveMenuFilters), which is why typing in search "revealed" items.
   useEffect(() => {
-    if (!hasActiveMenuFilters) return
+    if (!restaurant?.menuSections?.length) return
 
     const nextExpanded = new Set()
     filteredSections.forEach(({ section, originalIndex }) => {
@@ -1865,8 +1859,12 @@ function RestaurantDetailsContent() {
       })
     })
 
+    // If filters wiped the list, don't collapse leftover section headers from a
+    // previous expansion state in a confusing way — leave as-is.
+    if (nextExpanded.size === 0) return
+
     setExpandedSections(nextExpanded)
-  }, [filteredSections, hasActiveMenuFilters])
+  }, [filteredSections, restaurant?.menuSections?.length])
 
   useEffect(() => {
     if (!restaurant?.menuSections || !targetDishId) return
@@ -2313,14 +2311,7 @@ function RestaurantDetailsContent() {
             {activeFilterCount > 0 && (
               <button
                 type="button"
-                onClick={() =>
-                  setFilters({
-                    sortBy: null,
-                    vegNonVeg: null,
-                    highlyReordered: false,
-                    spicy: false,
-                  })
-                }
+                onClick={() => setFilters({ ...DEFAULT_MENU_FILTERS })}
                 className="text-[12px] font-semibold text-[#EB590E] whitespace-nowrap shrink-0 px-1"
               >
                 Clear
@@ -2387,19 +2378,37 @@ function RestaurantDetailsContent() {
         {/* Menu Items Section */}
         {restaurant?.menuSections && Array.isArray(restaurant.menuSections) && restaurant.menuSections.length > 0 && (
           <div className="py-6 sm:py-8 md:py-10 lg:py-12 space-y-6 md:space-y-8 lg:space-y-10">
-            {filteredSections.length === 0 && hasActiveMenuFilters && (
+            {filteredSections.length === 0 && !loadingMenuItems && hasActiveMenuFilters && (
               <div className="rounded-2xl border border-dashed border-gray-300 dark:border-gray-700 bg-white dark:bg-[#1a1a1a] px-5 py-8 text-center">
                 <p className="text-sm md:text-base font-medium text-gray-700 dark:text-gray-300">
-                  No dishes match the selected filters.
+                  {vegMode === true && !filters.sortBy && !filters.vegNonVeg && !filters.highlyReordered && !filters.spicy && !searchQuery.trim() && !showOnlyUnder250
+                    ? "No veg dishes available in this restaurant."
+                    : "No dishes match the selected filters."}
                 </p>
                 <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 mt-2">
-                  Clear filters or try a different combination.
+                  {vegMode === true && !filters.sortBy && !filters.vegNonVeg && !filters.highlyReordered && !filters.spicy && !searchQuery.trim() && !showOnlyUnder250
+                    ? "Turn off Veg Mode from your profile to see all dishes."
+                    : "Clear filters or try a different combination."}
                 </p>
+                {(activeFilterCount > 0 || searchQuery.trim()) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilters({ ...DEFAULT_MENU_FILTERS })
+                      setSearchQuery("")
+                      setShowSearch(false)
+                      setSelectedMenuCategory("all")
+                    }}
+                    className="mt-4 text-sm font-semibold text-[#EB590E]"
+                  >
+                    Clear filters
+                  </button>
+                )}
               </div>
             )}
-            {filteredSections.length === 0 && (
+            {filteredSections.length === 0 && !loadingMenuItems && !hasActiveMenuFilters && (
               <div className="rounded-3xl border border-dashed border-gray-300 bg-white px-6 py-10 text-center text-sm text-gray-500">
-                No dishes match the current filters.
+                No dishes available right now.
               </div>
             )}
 
@@ -3227,14 +3236,7 @@ function RestaurantDetailsContent() {
                   {/* Bottom Action Bar */}
                   <div className="border-t border-gray-200 dark:border-gray-800 px-4 py-3 flex items-center justify-between bg-white dark:bg-[#1a1a1a]">
                     <button
-                      onClick={() => {
-                        setFilters({
-                          sortBy: null,
-                          vegNonVeg: null,
-                          highlyReordered: false,
-                          spicy: false,
-                        })
-                      }}
+                      onClick={() => setFilters({ ...DEFAULT_MENU_FILTERS })}
                       className="text-red-600 dark:text-red-400 font-medium text-sm hover:text-red-700 dark:hover:text-red-500"
                     >
                       Clear All

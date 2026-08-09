@@ -94,7 +94,6 @@ export const getDeliveryPartnerWalletEnhanced = async (deliveryPartnerId) => {
     // Merge computed metrics with wallet ledger values to avoid stale pocket totals across admin bonus/manual wallet updates.
     const walletBalance = Number(walletDoc?.balance) || 0;
     const walletLockedAmount = Number(walletDoc?.lockedAmount) || 0;
-    const walletCashInHand = Number(walletDoc?.cashInHand) || 0;
     const walletTotalEarnings = Number(walletDoc?.totalEarnings) || 0;
     const walletTotalBonus = Number(walletDoc?.totalBonus) || 0;
     const walletTotalSettled = Number(walletDoc?.totalSettled) || 0;
@@ -102,7 +101,8 @@ export const getDeliveryPartnerWalletEnhanced = async (deliveryPartnerId) => {
     const totalEarned = Math.max(aggTotalEarned, walletTotalEarnings);
     const totalBonus = Math.max(aggTotalBonus, walletTotalBonus);
     const totalWithdrawn = Math.max(aggTotalWithdrawn, walletTotalSettled);
-    const cashInHand = Math.max(computedCashInHand, walletCashInHand);
+    // COD cash-in-hand = delivered COD totals − completed deposits.
+    const cashInHand = computedCashInHand;
 
     const totalCashLimit = Number(cashLimitSettings.deliveryCashLimit) || 0;
     const deliveryWithdrawalLimit = Number(cashLimitSettings.deliveryWithdrawalLimit) || 100;
@@ -349,8 +349,160 @@ export const verifyDeliveryCashDepositPayment = async (deliveryPartnerId, payloa
             razorpayPaymentId: paymentId
         });
 
+    await applyCashDepositWalletUpdates(deliveryPartnerId, amount);
+
     return {
         deposit,
         wallet: await getDeliveryPartnerWalletEnhanced(deliveryPartnerId)
     };
 };
+
+const toPartnerObjectId = (partnerId) => {
+    if (!partnerId) return null;
+    if (partnerId instanceof mongoose.Types.ObjectId) return partnerId;
+    if (mongoose.Types.ObjectId.isValid(partnerId)) {
+        return new mongoose.Types.ObjectId(partnerId);
+    }
+    return null;
+};
+
+/**
+ * Batch available COD capacity for many partners.
+ * available = max(0, globalCashLimit - (COD delivered totals - completed deposits))
+ * @returns {Promise<Map<string, number>>}
+ */
+export const getPartnersAvailableCashLimits = async (partnerIds = []) => {
+    const uniqueIds = [...new Set(
+        (partnerIds || [])
+            .map((id) => toPartnerObjectId(id))
+            .filter(Boolean)
+            .map((id) => String(id))
+    )];
+
+    const result = new Map();
+    if (uniqueIds.length === 0) return result;
+
+    const objectIds = uniqueIds.map((id) => new mongoose.Types.ObjectId(id));
+    const cashLimitSettings = await getDeliveryCashLimitSettings();
+    const totalCashLimit = Math.max(0, Number(cashLimitSettings?.deliveryCashLimit) || 0);
+
+    const [cashCollectedAgg, cashDepositsAgg] = await Promise.all([
+        FoodOrder.aggregate([
+            {
+                $match: {
+                    'dispatch.deliveryPartnerId': { $in: objectIds },
+                    orderStatus: 'delivered',
+                    'payment.method': 'cash',
+                },
+            },
+            {
+                $group: {
+                    _id: '$dispatch.deliveryPartnerId',
+                    cashCollected: { $sum: { $ifNull: ['$pricing.total', 0] } },
+                },
+            },
+        ]),
+        FoodDeliveryCashDeposit.aggregate([
+            {
+                $match: {
+                    deliveryPartnerId: { $in: objectIds },
+                    status: 'Completed',
+                },
+            },
+            {
+                $group: {
+                    _id: '$deliveryPartnerId',
+                    depositedCash: { $sum: { $ifNull: ['$amount', 0] } },
+                },
+            },
+        ]),
+    ]);
+
+    const collectedMap = new Map(
+        (cashCollectedAgg || []).map((row) => [String(row._id), Number(row.cashCollected) || 0])
+    );
+    const depositedMap = new Map(
+        (cashDepositsAgg || []).map((row) => [String(row._id), Number(row.depositedCash) || 0])
+    );
+
+    for (const id of uniqueIds) {
+        const cashInHand = Math.max(0, (collectedMap.get(id) || 0) - (depositedMap.get(id) || 0));
+        result.set(id, Math.max(0, totalCashLimit - cashInHand));
+    }
+    return result;
+};
+
+export const assertPartnerCanAcceptCodOrder = async (deliveryPartnerId, orderAmount) => {
+    const amount = Number(orderAmount) || 0;
+    if (!(amount > 0)) return true;
+
+    const limits = await getPartnersAvailableCashLimits([deliveryPartnerId]);
+    const available = Number(limits.get(String(deliveryPartnerId))) || 0;
+    if (available + 1e-9 < amount) {
+        throw new ValidationError(
+            `Insufficient COD cash limit. Available ₹${available.toFixed(0)}, order requires ₹${amount.toFixed(0)}.`
+        );
+    }
+    return true;
+};
+
+/**
+ * Apply delivery completion ledger updates:
+ * - Always credit rider earning into wallet balance / totalEarnings
+ * - For COD, increase cashInHand by order total (reduces available cash limit)
+ */
+export const applyDeliveryCompletionWalletUpdates = async ({
+    deliveryPartnerId,
+    riderEarning = 0,
+    orderTotal = 0,
+    isCod = false,
+}) => {
+    const partnerOid = toPartnerObjectId(deliveryPartnerId);
+    if (!partnerOid) return null;
+
+    const earning = Math.max(0, Number(riderEarning) || 0);
+    const cashCollect = isCod ? Math.max(0, Number(orderTotal) || 0) : 0;
+
+    const inc = {
+        totalDeliveries: 1,
+    };
+    if (earning > 0) {
+        inc.balance = earning;
+        inc.totalEarnings = earning;
+    }
+    if (cashCollect > 0) {
+        inc.cashInHand = cashCollect;
+    }
+
+    return FoodDeliveryWallet.findOneAndUpdate(
+        { deliveryPartnerId: partnerOid },
+        {
+            $inc: inc,
+            $setOnInsert: { deliveryPartnerId: partnerOid },
+        },
+        { upsert: true, new: true }
+    );
+};
+
+/**
+ * After cash deposit, reduce wallet cashInHand so remaining COD capacity increases.
+ */
+export const applyCashDepositWalletUpdates = async (deliveryPartnerId, amountInr) => {
+    const partnerOid = toPartnerObjectId(deliveryPartnerId);
+    const amount = Math.max(0, Number(amountInr) || 0);
+    if (!partnerOid || !(amount > 0)) return null;
+
+    const wallet = await FoodDeliveryWallet.findOneAndUpdate(
+        { deliveryPartnerId: partnerOid },
+        {
+            $setOnInsert: { deliveryPartnerId: partnerOid },
+        },
+        { upsert: true, new: true }
+    );
+
+    const nextCashInHand = Math.max(0, (Number(wallet?.cashInHand) || 0) - amount);
+    wallet.cashInHand = nextCashInHand;
+    await wallet.save();
+    return wallet;
+};
+

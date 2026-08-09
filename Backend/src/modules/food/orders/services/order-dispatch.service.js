@@ -225,6 +225,39 @@ export async function tryAutoAssign(orderId, options = {}) {
     const { partners } = await listNearbyOnlineDeliveryPartners(order.restaurantId, searchOptions);
     const busyPartnerIds = await getBusyDeliveryPartnerIds();
 
+    // COD: exclude riders whose remaining cash capacity is below this order amount.
+    const payMethod = String(order.payment?.method || '').toLowerCase();
+    const isCodOrder = payMethod === 'cash' || payMethod === 'cod';
+    const orderAmount = Number(order.pricing?.total) || Number(order.payment?.amountDue) || 0;
+    let codBlockedPartnerIds = new Set();
+    if (isCodOrder && orderAmount > 0 && partners.length > 0) {
+      try {
+        const { getPartnersAvailableCashLimits } = await import(
+          '../../delivery/services/deliveryFinance.service.js'
+        );
+        const limits = await getPartnersAvailableCashLimits(
+          partners.map((p) => p.partnerId),
+        );
+        for (const p of partners) {
+          const key = p.partnerId.toString();
+          const available = Number(limits.get(key));
+          if (!Number.isFinite(available) || available + 1e-9 < orderAmount) {
+            codBlockedPartnerIds.add(key);
+          }
+        }
+        if (codBlockedPartnerIds.size > 0) {
+          logger.info(
+            `tryAutoAssign: COD capacity blocked ${codBlockedPartnerIds.size}/${partners.length} riders for order ${order._id} (need ₹${orderAmount})`,
+          );
+        }
+      } catch (codErr) {
+        logger.warn(
+          `tryAutoAssign: COD capacity filter failed for ${order._id}: ${codErr?.message || codErr}`,
+        );
+        codBlockedPartnerIds = new Set();
+      }
+    }
+
     // TIERED ALERT LOGIC
     // Phase 2: Broadcast to all (Attempt 3+)
     // Phase 3: Admin Alert (Attempt 5+ or roughly 5 mins)
@@ -251,6 +284,7 @@ export async function tryAutoAssign(orderId, options = {}) {
       const partnerKey = partner.partnerId.toString();
       if (offeredIds.includes(partnerKey)) return false;
       if (busyPartnerIds.has(partnerKey)) return false;
+      if (codBlockedPartnerIds.has(partnerKey)) return false;
       return true;
     });
 
@@ -263,6 +297,7 @@ export async function tryAutoAssign(orderId, options = {}) {
         const partnerKey = partner.partnerId.toString();
         if (permanentlyExcludedIds.has(partnerKey)) return false;
         if (busyPartnerIds.has(partnerKey)) return false;
+        if (codBlockedPartnerIds.has(partnerKey)) return false;
         return true;
       });
       if (io && reofferEligible.length > 0) {
