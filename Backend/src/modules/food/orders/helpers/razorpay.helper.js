@@ -51,6 +51,107 @@ export function createPaymentLink({ amountPaise, currency = 'INR', description, 
     });
 }
 
+/**
+ * Create a Razorpay Dynamic UPI QR Code (QR Codes API).
+ * Response includes `image_url` — Razorpay's hosted QR image to show directly.
+ * Works with BOTH test (`rzp_test_…`) and live (`rzp_live_…`) keys, but the
+ * QR Codes product must be enabled for that mode in Razorpay Dashboard.
+ * @see https://razorpay.com/docs/api/qr-codes/create/
+ */
+export async function createRazorpayQrCode({
+    amountPaise,
+    name,
+    description,
+    orderId,
+    closeByUnix,
+    notes = {},
+}) {
+    const instance = getRazorpayInstance();
+    if (!instance) return Promise.reject(new Error('Razorpay not configured'));
+
+    const amount = Math.round(Number(amountPaise) || 0);
+    if (!Number.isFinite(amount) || amount < 100) {
+        return Promise.reject(new Error('QR amount must be at least ₹1'));
+    }
+
+    // Razorpay requires close_by to be at least 15 minutes from now.
+    const minCloseBy = Math.floor(Date.now() / 1000) + 15 * 60;
+    const closeBy = Math.max(Number(closeByUnix) || 0, minCloseBy);
+
+    const stringNotes = Object.fromEntries(
+        Object.entries({
+            orderId: String(orderId || ''),
+            purpose: 'cod_collect',
+            ...notes,
+        })
+            .filter(([, value]) => value != null && String(value).trim() !== '')
+            .map(([key, value]) => [key, String(value).slice(0, 256)])
+            .slice(0, 15)
+    );
+
+    try {
+        return await instance.qrCode.create({
+            type: 'upi_qr',
+            name: String(name || `Order ${orderId || ''}`).slice(0, 40) || 'COD Collect',
+            usage: 'single_use',
+            fixed_amount: true,
+            payment_amount: amount,
+            description: String(description || `Order ${orderId} COD collect`).slice(0, 255),
+            close_by: closeBy,
+            notes: stringNotes,
+        });
+    } catch (error) {
+        const descriptionText = String(
+            error?.error?.description || error?.description || error?.message || ''
+        ).trim();
+        const normalized = descriptionText.toLowerCase();
+        const featureMissing =
+            normalized.includes('requested url was not found') ||
+            normalized.includes('not enabled') ||
+            normalized.includes('access denied');
+
+        if (featureMissing) {
+            const mode = String(KEY_ID || '').startsWith('rzp_live') ? 'Live' : 'Test';
+            const err = new Error(
+                `Razorpay QR Codes is not enabled for ${mode} mode. ` +
+                    `In Razorpay Dashboard → Payment Products → QR Codes, enable QR Codes ` +
+                    `(same mode as your key: ${mode}). ` +
+                    `API works with test and live keys once enabled; real UPI scan works in Live mode.`
+            );
+            err.statusCode = error?.statusCode || 400;
+            err.error = error?.error || { description: err.message };
+            err.cause = error;
+            throw err;
+        }
+
+        const err = new Error(descriptionText || 'Failed to create Razorpay QR code');
+        err.statusCode = error?.statusCode || 400;
+        err.error = error?.error || { description: err.message };
+        err.cause = error;
+        throw err;
+    }
+}
+
+/**
+ * Fetch a Razorpay QR Code by id (used to verify COD QR payment status).
+ */
+export async function fetchRazorpayQrCode(qrCodeId) {
+    const instance = getRazorpayInstance();
+    if (!instance) throw new Error('Razorpay not configured');
+    if (!qrCodeId) throw new Error('qrCodeId is required');
+    return instance.qrCode.fetch(String(qrCodeId));
+}
+
+/**
+ * Fetch payments received against a Razorpay QR Code.
+ */
+export async function fetchRazorpayQrPayments(qrCodeId, options = {}) {
+    const instance = getRazorpayInstance();
+    if (!instance) throw new Error('Razorpay not configured');
+    if (!qrCodeId) throw new Error('qrCodeId is required');
+    return instance.qrCode.fetchAllPayments(String(qrCodeId), options);
+}
+
 export function verifyPaymentSignature(orderId, paymentId, signature) {
     if (!KEY_SECRET) return false;
     const body = `${orderId}|${paymentId}`;

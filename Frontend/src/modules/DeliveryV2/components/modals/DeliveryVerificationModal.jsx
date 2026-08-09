@@ -180,7 +180,7 @@ const OtpModal = ({ order, onVerified, onClose }) => {
 
 const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
   const [showQrModal, setShowQrModal] = useState(false);
-  const [collectQrLink, setCollectQrLink] = useState(null);
+  const [collectQrImageUrl, setCollectQrImageUrl] = useState(null);
   const [isGeneratingQr, setIsGeneratingQr] = useState(false);
   const isInitialPaid = ['paid', 'captured', 'authorized'].includes(String(order.payment?.status || "").toLowerCase());
   const [paymentStatus, setPaymentStatus] = useState(isInitialPaid ? 'paid' : 'idle');
@@ -262,9 +262,15 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
         name: order.userName || 'Customer',
         phone: order.userPhone || ''
       });
-      const link = res?.data?.data?.shortUrl || res?.data?.shortUrl || null;
-      if (link) {
-        setCollectQrLink(link);
+      const payload = res?.data?.data ?? res?.data ?? {};
+      // Prefer Razorpay-hosted dynamic QR image_url — do not encode payment links client-side.
+      const imageUrl =
+        payload?.imageUrl ||
+        payload?.image_url ||
+        payload?.qr?.imageUrl ||
+        null;
+      if (imageUrl) {
+        setCollectQrImageUrl(imageUrl);
         setPaymentStatus('pending');
         setShowQrModal(true);
         setIsCashAccepted(false); // Reset cash if they try QR
@@ -272,7 +278,7 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
         toast.error("Could not generate QR code");
       }
     } catch (e) {
-      toast.error("QR Generation failed");
+      toast.error(e?.response?.data?.message || "QR Generation failed");
     } finally {
       setIsGeneratingQr(false);
     }
@@ -437,11 +443,17 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
               <p className="text-gray-500 text-sm mb-8 font-medium">Order Total: ₹{amountToCollect.toFixed(2)}</p>
               
               <div className="relative p-6 bg-gray-50 rounded-3xl border-2 border-gray-100 mb-8">
-                 <img 
-                   src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(collectQrLink)}`} 
-                   alt="Razorpay QR"
-                   className="w-56 h-56"
-                 />
+                 {collectQrImageUrl ? (
+                   <img 
+                     src={collectQrImageUrl}
+                     alt="Razorpay Dynamic QR"
+                     className="w-56 h-56 object-contain bg-white rounded-xl"
+                   />
+                 ) : (
+                   <div className="w-56 h-56 flex items-center justify-center text-gray-400 text-sm">
+                     Generating QR...
+                   </div>
+                 )}
                  <button 
                     onClick={handleManualCheck}
                     disabled={isSyncing}

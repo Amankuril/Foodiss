@@ -266,8 +266,6 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
 
   const menuData = useMemo(() => {
     const featureSettingsPath = "/admin/food/feature-settings"
-    const deliveryCashLimitPath = "/admin/food/delivery-cash-limit"
-    const cashLimitSettlementPath = "/admin/food/cash-limit-settlement"
     const offlinePaymentsPath = "/admin/food/orders/offline-payments"
 
     const mapped = adminSidebarMenu.map((section) => {
@@ -300,9 +298,6 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
               const permissionSection = resolvePermissionSectionByPath(item.path)
               if (!permissionSection && !isSuperAdmin(adminUser)) return null
               if (permissionSection && !canAdminAccess(adminUser, permissionSection, "view")) return null
-            }
-            if (item.type === "link" && !codControlEnabled && (item.path === deliveryCashLimitPath || item.path === cashLimitSettlementPath)) {
-              return null
             }
             if (item.type === "expandable" && Array.isArray(item.subItems)) {
               const filteredSubItems = item.subItems
