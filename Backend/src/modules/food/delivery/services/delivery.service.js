@@ -41,8 +41,17 @@ export const registerDeliveryPartner = async (payload, files) => {
         await FoodDeliveryPartner.deleteMany({ phone });
     }
 
-    if (vehicleNumber && String(vehicleNumber).trim()) {
-        const vNum = String(vehicleNumber).trim().toUpperCase();
+    const normalizedVehicleNumber =
+        vehicleNumber && String(vehicleNumber).trim()
+            ? String(vehicleNumber).trim().toUpperCase()
+            : undefined;
+    const normalizedDrivingLicenseNumber =
+        drivingLicenseNumber && String(drivingLicenseNumber).trim()
+            ? String(drivingLicenseNumber).trim().toUpperCase()
+            : undefined;
+
+    if (normalizedVehicleNumber) {
+        const vNum = normalizedVehicleNumber;
         
         // 1. Check for active/pending partners with this vehicle
         const activeVehicle = await FoodDeliveryPartner.findOne({ 
@@ -121,8 +130,8 @@ export const registerDeliveryPartner = async (payload, files) => {
         state,
         vehicleType,
         vehicleName,
-        vehicleNumber,
-        drivingLicenseNumber,
+        vehicleNumber: normalizedVehicleNumber,
+        drivingLicenseNumber: normalizedDrivingLicenseNumber,
         panNumber,
         aadharNumber,
         status: 'pending',

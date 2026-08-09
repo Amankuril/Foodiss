@@ -56,6 +56,11 @@ export default function SignupStep1() {
 
   const drivingLicenseRegex = /^[A-Z]{2}[0-9A-Z]{8,16}$/
 
+  const isNonMotorizedVehicle = (type = formData.vehicleType) => {
+    const normalized = String(type || "").trim().toLowerCase()
+    return normalized === "bicycle" || normalized === "cycle"
+  }
+
   const isValidEmailValue = (value) => {
     const normalizedValue = value.trim()
     const emailRegex = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9\-]+(?:\.[a-zA-Z0-9\-]+)*\.[a-zA-Z]{2,10}$/;
@@ -132,6 +137,20 @@ export default function SignupStep1() {
         [name]: ""
       }))
     }
+    // Switching to bicycle/cycle clears vehicle number + DL requirements.
+    if (name === "vehicleType") {
+      const nonMotorized = (() => {
+        const normalized = String(updatedValue || "").trim().toLowerCase()
+        return normalized === "bicycle" || normalized === "cycle"
+      })()
+      if (nonMotorized) {
+        setErrors(prev => ({
+          ...prev,
+          vehicleNumber: "",
+          drivingLicenseNumber: "",
+        }))
+      }
+    }
   }
 
   const validate = () => {
@@ -163,16 +182,29 @@ export default function SignupStep1() {
       newErrors.state = "State can contain letters only"
     }
 
-    if (!formData.vehicleNumber.trim()) {
-      newErrors.vehicleNumber = "Vehicle number is required"
-    } else if (!/^[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}$/.test(formData.vehicleNumber)) {
-      newErrors.vehicleNumber = "Invalid Indian vehicle number format (e.g., MH12AB1234)"
-    }
+    const nonMotorized = isNonMotorizedVehicle()
+    const vehicleNumber = formData.vehicleNumber.trim()
+    const drivingLicenseNumber = formData.drivingLicenseNumber.trim()
 
-    if (!formData.drivingLicenseNumber.trim()) {
-      newErrors.drivingLicenseNumber = "Driving license number is required"
-    } else if (!drivingLicenseRegex.test(formData.drivingLicenseNumber)) {
-      newErrors.drivingLicenseNumber = "Invalid DL format (e.g., DL0120110012345)"
+    if (!nonMotorized) {
+      if (!vehicleNumber) {
+        newErrors.vehicleNumber = "Vehicle number is required"
+      } else if (!/^[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}$/.test(vehicleNumber)) {
+        newErrors.vehicleNumber = "Invalid Indian vehicle number format (e.g., MH12AB1234)"
+      }
+
+      if (!drivingLicenseNumber) {
+        newErrors.drivingLicenseNumber = "Driving license number is required"
+      } else if (!drivingLicenseRegex.test(drivingLicenseNumber)) {
+        newErrors.drivingLicenseNumber = "Invalid DL format (e.g., DL0120110012345)"
+      }
+    } else {
+      if (vehicleNumber && !/^[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}$/.test(vehicleNumber)) {
+        newErrors.vehicleNumber = "Invalid Indian vehicle number format (e.g., MH12AB1234)"
+      }
+      if (drivingLicenseNumber && !drivingLicenseRegex.test(drivingLicenseNumber)) {
+        newErrors.drivingLicenseNumber = "Invalid DL format (e.g., DL0120110012345)"
+      }
     }
 
     if (!formData.panNumber.trim()) {
@@ -202,13 +234,16 @@ export default function SignupStep1() {
     setIsSubmitting(true)
 
     try {
-      // Check vehicle availability before proceeding
-      const vCheck = await deliveryAPI.checkVehicleAvailability(formData.vehicleNumber.trim())
-      if (vCheck?.data?.success && !vCheck.data.isAvailable) {
-        setErrors(prev => ({ ...prev, vehicleNumber: "This vehicle is already registered with another partner" }))
-        toast.error("Vehicle already registered")
-        setIsSubmitting(false)
-        return
+      // Check vehicle availability before proceeding (skip when empty for bicycle/cycle)
+      const vehicleNumber = formData.vehicleNumber.trim()
+      if (vehicleNumber) {
+        const vCheck = await deliveryAPI.checkVehicleAvailability(vehicleNumber)
+        if (vCheck?.data?.success && !vCheck.data.isAvailable) {
+          setErrors(prev => ({ ...prev, vehicleNumber: "This vehicle is already registered with another partner" }))
+          toast.error("Vehicle already registered")
+          setIsSubmitting(false)
+          return
+        }
       }
 
       const details = {
@@ -222,7 +257,7 @@ export default function SignupStep1() {
         state: formData.state.trim(),
         vehicleType: formData.vehicleType || "bike",
         vehicleName: formData.vehicleName?.trim() || "",
-        vehicleNumber: formData.vehicleNumber.trim(),
+        vehicleNumber: vehicleNumber,
         drivingLicenseNumber: formData.drivingLicenseNumber.trim().toUpperCase(),
         panNumber: formData.panNumber.trim().toUpperCase(),
         aadharNumber: formData.aadharNumber.replace(/\s/g, "")
@@ -363,6 +398,7 @@ export default function SignupStep1() {
               <option value="bike">Bike</option>
               <option value="scooter">Scooter</option>
               <option value="bicycle">Bicycle</option>
+              <option value="cycle">Cycle</option>
               <option value="car">Car</option>
             </select>
           </div>
@@ -385,7 +421,12 @@ export default function SignupStep1() {
           {/* Vehicle Number */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Vehicle Number <span className="text-red-500">*</span>
+              Vehicle Number{" "}
+              {isNonMotorizedVehicle() ? (
+                <span className="text-gray-400 font-normal">(Optional)</span>
+              ) : (
+                <span className="text-red-500">*</span>
+              )}
             </label>
             <input
               type="text"
@@ -403,7 +444,12 @@ export default function SignupStep1() {
           {/* Driving License Number */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Driving License Number <span className="text-red-500">*</span>
+              Driving License Number{" "}
+              {isNonMotorizedVehicle() ? (
+                <span className="text-gray-400 font-normal">(Optional)</span>
+              ) : (
+                <span className="text-red-500">*</span>
+              )}
             </label>
             <input
               type="text"

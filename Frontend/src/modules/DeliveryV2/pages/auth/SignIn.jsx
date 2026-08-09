@@ -125,7 +125,7 @@ export default function DeliverySignIn() {
   }
 
   return (
-    <div className="min-h-[100dvh] bg-zinc-50 flex flex-col font-sans overflow-hidden relative selection:bg-[#0D9488]/10">
+    <div className="h-[100dvh] max-h-[100dvh] bg-zinc-50 flex flex-col font-sans overflow-hidden relative selection:bg-[#0D9488]/10">
       <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
         <div className="absolute top-[-10%] left-[-20%] w-[100%] h-[50%] bg-[#0D9488]/10 skew-y-[-12deg] transform-gpu" />
         <div className="absolute top-[5%] right-[-10%] w-[60%] h-[40%] bg-[#2DD4BF]/5 skew-y-[12deg] transform-gpu" />
@@ -135,17 +135,21 @@ export default function DeliverySignIn() {
       </div>
 
       <div
-        className="flex-1 flex flex-col items-center justify-center px-6 relative z-10 py-12"
-        style={{ paddingBottom: keyboardInset ? `${keyboardInset + 20}px` : undefined }}
+        className="flex-1 min-h-0 flex flex-col items-center justify-center px-6 relative z-10 pt-6 pb-8"
+        style={{
+          paddingBottom: keyboardInset
+            ? `${keyboardInset + 24}px`
+            : "max(2rem, env(safe-area-inset-bottom, 0px))",
+        }}
       >
-        <div className="w-full max-w-md">
+        <div className="w-full max-w-md flex flex-col">
           <motion.div
             initial={{ y: -30, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ duration: 0.6, ease: "easeOut" }}
-            className="mb-12 flex flex-col items-center text-center"
+            className="mb-6 flex flex-col items-center text-center"
           >
-            <div className="w-24 h-24 bg-white rounded-[2rem] flex items-center justify-center shadow-md p-3 mb-6 mx-auto">
+            <div className="w-20 h-20 bg-white rounded-[1.75rem] flex items-center justify-center shadow-md p-2.5 mb-4 mx-auto">
               <img
                 src={logoUrl}
                 alt="Logo"
@@ -158,7 +162,7 @@ export default function DeliverySignIn() {
               />
             </div>
 
-            <h1 className="text-4xl font-black text-zinc-900 italic tracking-tighter leading-none mb-2">
+            <h1 className="text-3xl sm:text-4xl font-black text-zinc-900 italic tracking-tighter leading-none mb-1.5">
               FOODISS <span className="text-[#0D9488] not-italic opacity-80 font-light">CAPTAIN</span>
             </h1>
             <p className="text-[#0D9488] text-[10px] font-black uppercase tracking-[0.4em] opacity-50">
@@ -170,13 +174,13 @@ export default function DeliverySignIn() {
             initial={{ y: 30, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ duration: 0.8, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
-            className="bg-white border border-zinc-100 rounded-[2.5rem] p-8 shadow-[0_32px_64px_-12px_rgba(0,0,0,0.06)] relative overflow-hidden"
+            className="bg-white border border-zinc-100 rounded-[2rem] p-6 sm:p-8 shadow-[0_32px_64px_-12px_rgba(0,0,0,0.06)] relative overflow-hidden"
           >
             <div className="absolute top-0 left-0 w-full h-1/2 bg-gradient-to-b from-zinc-50/50 to-transparent pointer-events-none" />
 
             <div className="relative z-10">
-              <div className="mb-10">
-                <h2 className="text-2xl font-black text-zinc-900 tracking-tight mb-2">
+              <div className="mb-6">
+                <h2 className="text-xl sm:text-2xl font-black text-zinc-900 tracking-tight mb-1.5">
                   Ready to Move?
                 </h2>
                 <p className="text-zinc-500 text-sm font-medium">
@@ -184,14 +188,14 @@ export default function DeliverySignIn() {
                 </p>
               </div>
 
-              <div className="space-y-8">
-                <div className="space-y-4">
+              <div className="space-y-5">
+                <div className="space-y-3">
                   <label className="text-[10px] font-black text-[#0D9488] uppercase tracking-[0.3em] ml-1 opacity-70">
                     Captain Identity
                   </label>
 
-                  <div className="flex items-center bg-zinc-50 border border-zinc-200 rounded-2xl focus-within:border-[#0D9488]/50 focus-within:ring-4 focus-within:ring-[#0D9488]/5 transition-all overflow-hidden h-16 group">
-                    <div className="px-5 bg-zinc-100/50 border-r border-zinc-200 text-zinc-700 font-black text-lg h-full flex items-center group-focus-within:text-[#0D9488] transition-colors">
+                  <div className="flex items-center bg-zinc-50 border border-zinc-200 rounded-2xl focus-within:border-[#0D9488]/50 focus-within:ring-4 focus-within:ring-[#0D9488]/5 transition-all overflow-hidden h-14 group">
+                    <div className="px-4 bg-zinc-100/50 border-r border-zinc-200 text-zinc-700 font-black text-base h-full flex items-center group-focus-within:text-[#0D9488] transition-colors">
                       +91
                     </div>
                     <input
@@ -224,7 +228,7 @@ export default function DeliverySignIn() {
                 <Button
                   onClick={handleSendOTP}
                   disabled={isSending || formData.phone.length !== 10}
-                  className="w-full h-16 rounded-2xl font-black text-base tracking-widest uppercase transition-all duration-300 bg-[#0D9488] hover:bg-[#0F766E] text-white shadow-[0_12px_30px_rgba(13,148,136,0.3)] active:scale-[0.98] disabled:opacity-30 disabled:grayscale flex items-center justify-center gap-2 group"
+                  className="w-full h-14 rounded-2xl font-black text-base tracking-widest uppercase transition-all duration-300 bg-[#0D9488] hover:bg-[#0F766E] text-white shadow-[0_12px_30px_rgba(13,148,136,0.3)] active:scale-[0.98] disabled:opacity-30 disabled:grayscale flex items-center justify-center gap-2 group"
                 >
                   {isSending ? (
                     <>
@@ -246,9 +250,9 @@ export default function DeliverySignIn() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.5 }}
-            className="mt-12 text-center"
+            className="mt-5 pt-1 text-center"
           >
-            <div className="flex items-center justify-center gap-2 mb-4 text-[#0D9488]/30">
+            <div className="flex items-center justify-center gap-2 mb-3 text-[#0D9488]/30">
               <Navigation className="w-3 h-3" />
               <div className="h-px w-8 bg-current" />
               <p className="text-[10px] font-black uppercase tracking-widest">

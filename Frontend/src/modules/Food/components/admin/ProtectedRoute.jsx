@@ -16,6 +16,7 @@ export default function ProtectedRoute({ children }) {
     isModuleAuthenticated("admin") ? "checking" : "deny"
   )
 
+  // Initial auth sync only — do not remount layout on every sidebar navigation.
   useEffect(() => {
     let isMounted = true
 
@@ -24,8 +25,6 @@ export default function ProtectedRoute({ children }) {
         if (isMounted) setStatus("deny")
         return
       }
-
-      if (isMounted) setStatus("checking")
 
       const accessToken = await ensureValidAccessToken("admin")
       if (!accessToken) {
@@ -64,7 +63,15 @@ export default function ProtectedRoute({ children }) {
     return () => {
       isMounted = false
     }
-  }, [location.pathname])
+  }, [])
+
+  // Soft auth check on route change: never flip back to "checking" (that unmounts sidebar).
+  useEffect(() => {
+    if (status !== "ok") return
+    if (!isModuleAuthenticated("admin")) {
+      setStatus("deny")
+    }
+  }, [location.pathname, status])
 
   if (status === "checking") {
     return <div className="min-h-screen bg-neutral-100" />

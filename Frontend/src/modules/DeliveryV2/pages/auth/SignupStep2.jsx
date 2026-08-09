@@ -243,6 +243,26 @@ export default function SignupStep2() {
   const documentTypes = ["profilePhoto", "aadharPhoto", "panPhoto", "drivingLicensePhoto"]
   const isMountedRef = useRef(true)
 
+  const getSignupVehicleType = () => {
+    try {
+      const raw = sessionStorage.getItem("deliverySignupDetails")
+      if (!raw) return ""
+      const details = JSON.parse(raw)
+      return String(details?.vehicleType || "").trim().toLowerCase()
+    } catch {
+      return ""
+    }
+  }
+
+  const isNonMotorizedVehicle = () => {
+    const type = getSignupVehicleType()
+    return type === "bicycle" || type === "cycle"
+  }
+
+  const requiredDocumentTypes = isNonMotorizedVehicle()
+    ? ["profilePhoto", "aadharPhoto", "panPhoto"]
+    : documentTypes
+
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" })
     document.documentElement.scrollTop = 0
@@ -386,7 +406,23 @@ export default function SignupStep2() {
       return
     }
 
-    if (!documents.profilePhoto || !documents.aadharPhoto || !documents.panPhoto || !documents.drivingLicensePhoto) {
+    if (!documents.profilePhoto || !documents.aadharPhoto || !documents.panPhoto) {
+      toast.error("Please upload all required documents")
+      return
+    }
+
+    const nonMotorized = (() => {
+      try {
+        const type = String(JSON.parse(sessionStorage.getItem("deliverySignupDetails") || "{}")?.vehicleType || "")
+          .trim()
+          .toLowerCase()
+        return type === "bicycle" || type === "cycle"
+      } catch {
+        return false
+      }
+    })()
+
+    if (!nonMotorized && !documents.drivingLicensePhoto) {
       toast.error("Please upload all required documents")
       return
     }
@@ -428,7 +464,9 @@ export default function SignupStep2() {
     formData.append("profilePhoto", documents.profilePhoto)
     formData.append("aadharPhoto", documents.aadharPhoto)
     formData.append("panPhoto", documents.panPhoto)
-    formData.append("drivingLicensePhoto", documents.drivingLicensePhoto)
+    if (documents.drivingLicensePhoto) {
+      formData.append("drivingLicensePhoto", documents.drivingLicensePhoto)
+    }
 
     // Try to get FCM token before registering
     let fcmToken = null;
@@ -512,7 +550,12 @@ export default function SignupStep2() {
     return (
       <div className="bg-white rounded-lg p-4 border border-gray-200">
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          {label} {required && <span className="text-red-500">*</span>}
+          {label}{" "}
+          {required ? (
+            <span className="text-red-500">*</span>
+          ) : (
+            <span className="text-gray-400 font-normal">(Optional)</span>
+          )}
         </label>
 
         {uploaded && hasPreview ? (
@@ -611,8 +654,8 @@ export default function SignupStep2() {
   }
 
   const isAnyUploading = documentTypes.some((docType) => Boolean(uploading[docType]))
-  const hasAllDocuments = documentTypes.every((docType) => documents[docType])
-  const hasAllPreviews = documentTypes.every((docType) => {
+  const hasAllDocuments = requiredDocumentTypes.every((docType) => documents[docType])
+  const hasAllPreviews = requiredDocumentTypes.every((docType) => {
     if (!documents[docType]) return false
     return Boolean(getPreviewSrc(docType))
   })
@@ -642,7 +685,11 @@ export default function SignupStep2() {
           <DocumentUpload docType="profilePhoto" label="Profile Photo" required={true} />
           <DocumentUpload docType="aadharPhoto" label="Aadhar Card Photo" required={true} />
           <DocumentUpload docType="panPhoto" label="PAN Card Photo" required={true} />
-          <DocumentUpload docType="drivingLicensePhoto" label="Driving License Photo" required={true} />
+          <DocumentUpload
+            docType="drivingLicensePhoto"
+            label="Driving License Photo"
+            required={!isNonMotorizedVehicle()}
+          />
 
           {/* Submit Button */}
           <button

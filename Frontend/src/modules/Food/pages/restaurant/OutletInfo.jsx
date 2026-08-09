@@ -1390,8 +1390,6 @@ export default function OutletInfo() {
               </div>
             </div>
           </div>
-
-          </div>
         </div>
         </div>
       </div>
