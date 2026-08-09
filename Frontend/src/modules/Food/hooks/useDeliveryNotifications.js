@@ -341,7 +341,7 @@ export const useDeliveryNotifications = () => {
           audioRef.current.pause();
           audioRef.current.src = newSrc;
           audioRef.current.load();
-          debugLog('?? Audio source updated to:', selectedSound === 'original' ? 'Original' : 'Zomato Tone');
+          debugLog('?? Audio source updated to:', selectedSound === 'original' ? 'Original' : 'Foodiss Tone');
         }
       } else {
         // Initialize audio if not exists
@@ -350,7 +350,7 @@ export const useDeliveryNotifications = () => {
         audioRef.current.preload = 'auto';
         audioRef.current.volume = 0.9;
         audioRef.current.load();
-        debugLog('?? Audio initialized with:', selectedSound === 'original' ? 'Original' : 'Zomato Tone', 'Source:', soundFile);
+        debugLog('?? Audio initialized with:', selectedSound === 'original' ? 'Original' : 'Foodiss Tone', 'Source:', soundFile);
       }
       
       if (audioRef.current) {
@@ -684,7 +684,7 @@ export const useDeliveryNotifications = () => {
       audioRef.current = new Audio(soundFile);
       audioRef.current.preload = 'auto';
       audioRef.current.volume = 0.7;
-      debugLog('?? Audio initialized with:', selectedSound === 'original' ? 'Original' : 'Zomato Tone');
+      debugLog('?? Audio initialized with:', selectedSound === 'original' ? 'Original' : 'Foodiss Tone');
     } else {
       // Update audio source if preference changed
       const currentSrc = audioRef.current.src;
@@ -693,7 +693,7 @@ export const useDeliveryNotifications = () => {
         audioRef.current.pause();
         audioRef.current.src = newSrc;
         audioRef.current.load();
-        debugLog('?? Audio updated to:', selectedSound === 'original' ? 'Original' : 'Zomato Tone');
+        debugLog('?? Audio updated to:', selectedSound === 'original' ? 'Original' : 'Foodiss Tone');
       }
     }
     

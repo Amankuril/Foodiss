@@ -302,7 +302,7 @@ export function useOrdersManagement(orders, statusKey, title, options = {}) {
         : (order.date || new Date().toLocaleDateString())
 
       const settings = getCachedSettings() || await loadBusinessSettings()
-      const companyName = settings?.companyName || "SwitchEats Food"
+      const companyName = settings?.companyName || "Foodiss Food"
       const logoUrl = settings?.logo?.url || quickSpicyLogo
       const logoDataUrl = await imageUrlToDataUrl(logoUrl)
 

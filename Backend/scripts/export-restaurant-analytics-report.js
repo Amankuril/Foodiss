@@ -273,7 +273,7 @@ const buildWorkbook = async ({
   statusFilter,
 }) => {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'Appzeto Restaurant Analytics Export';
+  workbook.creator = 'Foodiss Restaurant Analytics Export';
   workbook.created = new Date();
 
   const currentMonthKey = monthKeyFromDate(new Date());
