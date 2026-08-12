@@ -216,6 +216,7 @@ const buildEffectiveCartPricing = ({
 
   if (hasServerPricing) {
     const serverDeliveryFee = Number(pricing.deliveryFee)
+    const serverDeliverySurge = Number(pricing.deliverySurge) || 0
     const serverDeliveryFeeGst = Number(pricing.deliveryFeeGst)
     const serverPlatformFee = Number(pricing.platformFee)
     const serverTax = Number(pricing.tax)
@@ -231,9 +232,13 @@ const buildEffectiveCartPricing = ({
       tax: Number.isFinite(serverTax) ? serverTax : 0,
       packagingFee: Number(pricing.packagingFee) || 0,
       deliveryFee: Number.isFinite(serverDeliveryFee) ? serverDeliveryFee : 0,
+      deliverySurge: Number.isFinite(serverDeliverySurge) ? serverDeliverySurge : 0,
       deliveryFeeGst: Number.isFinite(serverDeliveryFeeGst)
         ? serverDeliveryFeeGst
-        : computeDeliveryFeeGst(Number.isFinite(serverDeliveryFee) ? serverDeliveryFee : 0),
+        : computeDeliveryFeeGst(
+            Number.isFinite(serverDeliveryFee) ? serverDeliveryFee : 0,
+            Number.isFinite(serverDeliverySurge) ? serverDeliverySurge : 0,
+          ),
       platformFee: Number.isFinite(serverPlatformFee) ? serverPlatformFee : 0,
       quickDeliveryFee,
       discount: Number.isFinite(serverDiscount) ? serverDiscount : 0,
@@ -250,7 +255,8 @@ const buildEffectiveCartPricing = ({
 
   // Mirror of backend order-pricing: discount clamped to subtotal, GST on post-discount base.
   const deliveryFee = fallbackDeliveryFee
-  const deliveryFeeGst = computeDeliveryFeeGst(deliveryFee)
+  const deliverySurge = 0
+  const deliveryFeeGst = computeDeliveryFeeGst(deliveryFee, deliverySurge)
   const basePlatformFee = Number(feeSettings.platformFee || 0)
   const quickDeliveryFee = deliveryMode === "quick" ? getConfiguredQuickDeliveryFee(feeSettings) : 0
   const platformFee = basePlatformFee + quickDeliveryFee
@@ -258,8 +264,8 @@ const buildEffectiveCartPricing = ({
     ? Math.max(0, Math.min(Math.floor(Number(appliedCoupon.discount) || 0), subtotal))
     : 0
   const gstCharges = Math.round(Math.max(0, subtotal - discount) * (Number(feeSettings.gstRate || 0) / 100))
-  const totalBeforeDiscount = subtotal + deliveryFee + deliveryFeeGst + platformFee + gstCharges
-  const total = Math.max(0, subtotal + deliveryFee + deliveryFeeGst + platformFee + gstCharges - discount)
+  const totalBeforeDiscount = subtotal + deliveryFee + deliverySurge + deliveryFeeGst + platformFee + gstCharges
+  const total = Math.max(0, subtotal + deliveryFee + deliverySurge + deliveryFeeGst + platformFee + gstCharges - discount)
   const savings = Math.max(0, totalBeforeDiscount - total)
 
   return {
@@ -267,6 +273,7 @@ const buildEffectiveCartPricing = ({
     tax: gstCharges,
     packagingFee: 0,
     deliveryFee,
+    deliverySurge,
     deliveryFeeGst,
     platformFee,
     quickDeliveryFee,
@@ -1239,6 +1246,7 @@ export default function Cart() {
           deliveryAddress: pricingAddress,
           couponCode: resolvedCouponCode,
           deliveryMode,
+          zoneId: zoneId || undefined,
         }
 
         if (scheduledOrderAt) {
@@ -1503,9 +1511,10 @@ export default function Cart() {
   )
   const subtotal = effectivePricing.subtotal
   const deliveryFee = effectivePricing.deliveryFee
+  const deliverySurge = Number(effectivePricing.deliverySurge) || 0
   const deliveryFeeGst = effectivePricing.deliveryFeeGst != null
-    ? resolveDeliveryFeeGst(deliveryFee, effectivePricing.deliveryFeeGst)
-    : computeDeliveryFeeGst(deliveryFee)
+    ? resolveDeliveryFeeGst(deliveryFee, effectivePricing.deliveryFeeGst, deliverySurge)
+    : computeDeliveryFeeGst(deliveryFee, deliverySurge)
   const quickDeliveryFee = effectivePricing.quickDeliveryFee || 0
   const deliveryFeeBreakdown = effectivePricing.deliveryFeeBreakdown
   const displayDistanceKm = Number.isFinite(Number(deliveryFeeBreakdown?.distanceKm))
@@ -1525,7 +1534,7 @@ export default function Cart() {
   const platformFee = effectivePricing.platformFee
   const gstCharges = effectivePricing.tax
   const discount = effectivePricing.discount
-  const totalBeforeDiscount = subtotal + deliveryFee + deliveryFeeGst + platformFee + gstCharges
+  const totalBeforeDiscount = subtotal + deliveryFee + deliverySurge + deliveryFeeGst + platformFee + gstCharges
   const total = effectivePricing.total
   const savings = effectivePricing.savings
   const itemDiscountAmount = appliedCoupon && discount > 0 ? discount : 0
@@ -1804,6 +1813,7 @@ export default function Cart() {
           deliveryAddress: pricingAddress,
           couponCode: coupon.code,
           deliveryMode,
+          zoneId: zoneId || undefined,
         })
 
         const pricingData = response?.data?.data?.pricing
@@ -1871,6 +1881,7 @@ export default function Cart() {
         deliveryAddress: pricingAddress,
         couponCode: inputCode,
         deliveryMode,
+        zoneId: zoneId || undefined,
       })
 
       const pricingData = response?.data?.data?.pricing
@@ -1946,6 +1957,7 @@ export default function Cart() {
           deliveryAddress: pricingAddress,
           couponCode: null,
           deliveryMode,
+          zoneId: zoneId || undefined,
         })
 
         if (response?.data?.success && response?.data?.data?.pricing) {
@@ -2186,6 +2198,7 @@ export default function Cart() {
         deliveryAddress: pricingAddress,
         couponCode: resolvedCouponCode,
         deliveryMode,
+        zoneId: zoneId || undefined,
       }
       if (isScheduled) {
         calculatePayload.scheduledAt = new Date(`${scheduledDate}T${scheduledTime}:00`).toISOString()
@@ -2213,6 +2226,7 @@ export default function Cart() {
       const orderPricing = {
         subtotal: Number(serverPricing.subtotal) || subtotal,
         deliveryFee: Number(serverPricing.deliveryFee) || 0,
+        deliverySurge: Number(serverPricing.deliverySurge) || 0,
         tax: Number(serverPricing.tax) || 0,
         platformFee: Number(serverPricing.platformFee) || 0,
         discount: Number(serverPricing.discount) || 0,
@@ -3148,20 +3162,20 @@ export default function Cart() {
                         </span>
                         {deliveryFee > 0 && (
                           <p className="mt-0.5 text-[11px] leading-snug text-gray-400 dark:text-gray-500">
-                            {formatDeliveryFeeBreakdownSubtext(deliveryFee, deliveryFeeGst, RUPEE_SYMBOL)}
+                            {formatDeliveryFeeBreakdownSubtext(deliveryFee, deliveryFeeGst, RUPEE_SYMBOL, deliverySurge)}
                           </p>
                         )}
                       </div>
                       <span
                         className={`shrink-0 whitespace-nowrap text-right font-medium ${
-                          deliveryFee === 0
+                          deliveryFee === 0 && deliverySurge === 0
                             ? "text-emerald-600 font-semibold"
                             : "text-gray-800 dark:text-gray-200"
                         }`}
                       >
-                        {deliveryFee === 0
+                        {deliveryFee === 0 && deliverySurge === 0
                           ? "FREE"
-                          : `${RUPEE_SYMBOL}${getDeliveryFeeTotal(deliveryFee, deliveryFeeGst).toFixed(2)}`}
+                          : `${RUPEE_SYMBOL}${getDeliveryFeeTotal(deliveryFee, deliveryFeeGst, deliverySurge).toFixed(2)}`}
                       </span>
                     </div>
                     {quickDeliveryFee > 0 && (

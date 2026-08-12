@@ -40,6 +40,7 @@ const ADMIN_PERMISSION_PATH_MAP = [
   { prefix: "/food/admin/referral-settings", section: "referral_rewards" },
   { prefix: "/food/admin/delivery", section: "delivery_management" },
   { prefix: "/food/admin/fee-settings", section: "delivery_management" },
+  { prefix: "/food/admin/delivery/zone-surges", section: "delivery_management" },
   { prefix: "/food/admin/delivery-cash-limit", section: "delivery_management" },
   { prefix: "/food/admin/cash-limit-settlements", section: "delivery_management" },
   { prefix: "/food/admin/cash-limit-settlement", section: "delivery_management" },

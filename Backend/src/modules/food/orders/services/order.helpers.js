@@ -364,6 +364,7 @@ export function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
     riderEarning: order?.riderEarning || 0,
     earnings: order?.riderEarning || order?.pricing?.deliveryFee || 0,
     deliveryFee: order?.pricing?.deliveryFee || 0,
+    deliverySurge: order?.pricing?.deliverySurge || 0,
     deliveryFleet: order?.deliveryFleet,
     dispatch: order?.dispatch,
     createdAt: order?.createdAt,

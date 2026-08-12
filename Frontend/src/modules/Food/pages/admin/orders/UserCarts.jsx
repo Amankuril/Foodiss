@@ -57,23 +57,26 @@ const getDeliveryBreakdownText = (pricing) => {
 function CartBillBreakdown({ pricing, fallbackSubtotal = 0, items = [] }) {
   const subtotal = Number(pricing?.subtotal ?? fallbackSubtotal) || 0
   const deliveryFee = Number(pricing?.deliveryFee) || 0
-  const deliveryFeeGst = resolveDeliveryFeeGst(deliveryFee, pricing?.deliveryFeeGst)
+  const deliverySurge = Number(pricing?.deliverySurge) || 0
+  const deliveryFeeGst = resolveDeliveryFeeGst(deliveryFee, pricing?.deliveryFeeGst, deliverySurge)
   const platformFee = Number(pricing?.platformFee) || 0
   const deliveryMode = pricing?.deliveryMode === "quick" ? "quick" : "basic"
   const quickDeliveryFee = Number(pricing?.quickDeliveryFee) || 0
   const basePlatformFee = Math.max(0, platformFee - quickDeliveryFee)
   const gstCharges = Number(pricing?.tax) || 0
   const discount = Number(pricing?.discount) || 0
-  const total = Number(pricing?.total) || Math.max(0, subtotal + deliveryFee + deliveryFeeGst + platformFee + gstCharges - discount)
+  const total = Number(pricing?.total) || Math.max(0, subtotal + deliveryFee + deliverySurge + deliveryFeeGst + platformFee + gstCharges - discount)
   const savings = Number(pricing?.savings) || 0
-  const totalBeforeDiscount = subtotal + deliveryFee + deliveryFeeGst + platformFee + gstCharges
+  const totalBeforeDiscount = subtotal + deliveryFee + deliverySurge + deliveryFeeGst + platformFee + gstCharges
   const deliveryFeeBreakdownText = getDeliveryBreakdownText(pricing)
   const couponCode = String(pricing?.couponCode || pricing?.appliedCoupon?.code || "").trim()
   const hasCoupon = Boolean(couponCode)
   const offerAmount = hasCoupon && discount > 0 ? discount : 0
   const otherSavings = Math.max(0, savings - offerAmount)
   const deliveryGstSubtext =
-    deliveryFee > 0 ? formatDeliveryFeeBreakdownSubtext(deliveryFee, deliveryFeeGst, RUPEE) : ""
+    deliveryFee > 0 || deliverySurge > 0
+      ? formatDeliveryFeeBreakdownSubtext(deliveryFee, deliveryFeeGst, RUPEE, deliverySurge)
+      : ""
   const compareItemTotal = getCartCompareItemTotal(items)
 
   return (
@@ -113,12 +116,12 @@ function CartBillBreakdown({ pricing, fallbackSubtotal = 0, items = [] }) {
           </div>
           <span
             className={`shrink-0 whitespace-nowrap text-right font-medium ${
-              deliveryFee === 0 ? "text-emerald-600" : "text-slate-800"
+              deliveryFee === 0 && deliverySurge === 0 ? "text-emerald-600" : "text-slate-800"
             }`}
           >
-            {deliveryFee === 0
+            {deliveryFee === 0 && deliverySurge === 0
               ? "FREE"
-              : formatMoney(getDeliveryFeeTotal(deliveryFee, deliveryFeeGst))}
+              : formatMoney(getDeliveryFeeTotal(deliveryFee, deliveryFeeGst, deliverySurge))}
           </span>
         </div>
         {quickDeliveryFee > 0 && (

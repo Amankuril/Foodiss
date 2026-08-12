@@ -77,6 +77,7 @@ const DeliveryLiveTracking = lazy(() => import("@food/pages/admin/delivery-partn
 const DeliverymanReviews = lazy(() => import("@food/pages/admin/delivery-partners/DeliverymanReviews"));
 const DeliverymanBonus = lazy(() => import("@food/pages/admin/delivery-partners/DeliverymanBonus"));
 const EarningAddon = lazy(() => import("@food/pages/admin/delivery-partners/EarningAddon"));
+const DeliveryZoneSurge = lazy(() => import("@food/pages/admin/delivery-partners/DeliveryZoneSurge"));
 const EarningAddonHistory = lazy(() => import("@food/pages/admin/delivery-partners/EarningAddonHistory"));
 const DeliveryEarnings = lazy(() => import("@food/pages/admin/delivery-partners/DeliveryEarnings"));
 // Disbursement Management
@@ -274,6 +275,7 @@ export default function AdminRouter() {
             {/* FOOD & CATEGORY MANAGEMENT */}
             <Route path="categories" element={<Category />} />
             <Route path="fee-settings" element={<FeeSettings />} />
+            <Route path="delivery-zone-surge" element={<DeliveryZoneSurge />} />
             <Route path="referral-settings" element={<ReferralSettings />} />
             <Route path="foods" element={<FoodsList />} />
             <Route path="food/list" element={<FoodsList />} />

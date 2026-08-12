@@ -2,6 +2,8 @@ import mongoose from 'mongoose';
 import { FoodOrder } from '../models/order.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodFeeSettings } from '../../admin/models/feeSettings.model.js';
+import { FoodZone } from '../../admin/models/zone.model.js';
+import { FoodZoneDeliverySurge } from '../../admin/models/zoneDeliverySurge.model.js';
 import { FoodOffer } from '../../admin/models/offer.model.js';
 import { FoodOfferUsage } from '../../admin/models/offerUsage.model.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
@@ -15,6 +17,7 @@ import { fetchDrivingRoute } from '../utils/googleMaps.js';
 import { attachOutletTimingsToRestaurants } from '../../restaurant/services/outletTimings.service.js';
 import { getRestaurantAvailabilityStatus } from '../../restaurant/helpers/restaurantAvailability.helper.js';
 import { resolveOrderCartItems } from '../helpers/order-cart-items.helper.js';
+import { calculateDeliverySurgeFromConfig } from '../utils/deliverySurge.utils.js';
 import {
   FEATURE_KEYS,
   isFeatureEnabled,
@@ -25,8 +28,8 @@ const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100;
 /** Fixed 18% GST on delivery fee (separate from item GST in fee settings). */
 export const DELIVERY_FEE_GST_RATE = 0.18;
 
-export function computeDeliveryFeeGst(deliveryFee) {
-  const base = Math.max(0, Number(deliveryFee) || 0);
+export function computeDeliveryFeeGst(deliveryFee, deliverySurge = 0) {
+  const base = Math.max(0, Number(deliveryFee) || 0) + Math.max(0, Number(deliverySurge) || 0);
   if (base <= 0) return 0;
   return round2(base * DELIVERY_FEE_GST_RATE);
 }
@@ -209,14 +212,32 @@ export function resolveUserDeliveryFee(feeSettings = {}, { subtotal = 0, distanc
   };
 }
 
-export function calculateRiderEarning(feeSettings = {}, distanceKm) {
+export async function loadZoneDeliverySurge(zoneId, baseDeliveryFee) {
+  if (!zoneId || !mongoose.Types.ObjectId.isValid(String(zoneId))) {
+    return calculateDeliverySurgeFromConfig(null, baseDeliveryFee);
+  }
+
+  const [zone, surge] = await Promise.all([
+    FoodZone.findById(zoneId).select('isActive').lean(),
+    FoodZoneDeliverySurge.findOne({ zoneId }).lean(),
+  ]);
+
+  if (!zone || zone.isActive === false) {
+    return calculateDeliverySurgeFromConfig(null, baseDeliveryFee);
+  }
+
+  return calculateDeliverySurgeFromConfig(surge, baseDeliveryFee);
+}
+
+export function calculateRiderEarning(feeSettings = {}, distanceKm, deliverySurge = 0) {
+  const surge = Math.max(0, Number(deliverySurge) || 0);
   const distance = Number(distanceKm);
-  if (!Number.isFinite(distance) || distance < 0) return 0;
+  if (!Number.isFinite(distance) || distance < 0) return surge;
 
   const ranges = Array.isArray(feeSettings.deliveryFeeRanges)
     ? feeSettings.deliveryFeeRanges
     : [];
-  if (ranges.length === 0) return 0;
+  if (ranges.length === 0) return surge;
 
   const earning = matchFeeRange(ranges, distance, (range) => {
     const basePay = Number(range.deliveryBoyBasePay || 0);
@@ -227,7 +248,7 @@ export function calculateRiderEarning(feeSettings = {}, distanceKm) {
     return 0;
   });
 
-  return Number.isFinite(earning) ? Math.round(earning) : 0;
+  return Number.isFinite(earning) ? Math.round(earning) + surge : surge;
 }
 
 export async function calculateOrderPricing(userId, dto, options = {}) {
@@ -265,6 +286,10 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
   const deliveryFeeResult = resolveUserDeliveryFee(feeSettings, { subtotal, distanceKm });
   const deliveryFee = round2(deliveryFeeResult.deliveryFee);
   distanceKm = deliveryFeeResult.distanceKm ?? distanceKm;
+
+  const zoneId = dto.zoneId || restaurant?.zoneId || null;
+  const surgeResult = await loadZoneDeliverySurge(zoneId, deliveryFee);
+  const deliverySurge = round2(surgeResult.deliverySurge);
 
   let discount = 0;
   let appliedCoupon = null;
@@ -360,12 +385,12 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
       ? Math.round(Math.max(0, subtotal - discount) * (gstRate / 100))
       : 0;
 
-  const deliveryFeeGst = computeDeliveryFeeGst(deliveryFee);
+  const deliveryFeeGst = computeDeliveryFeeGst(deliveryFee, deliverySurge);
 
   const total = round2(
     Math.max(
       0,
-      subtotal + packagingFee + deliveryFee + deliveryFeeGst + platformFee + tax - discount,
+      subtotal + packagingFee + deliveryFee + deliverySurge + deliveryFeeGst + platformFee + tax - discount,
     ),
   );
 
@@ -374,6 +399,9 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
     tax,
     packagingFee,
     deliveryFee,
+    deliverySurge,
+    deliverySurgeType: surgeResult.deliverySurgeType || 'none',
+    deliverySurgeValue: surgeResult.deliverySurgeValue || 0,
     deliveryFeeGst,
     platformFee,
     discount,
@@ -423,6 +451,9 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
         source: deliveryFeeResult.source,
         distanceKm: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(2)) : null,
         deliveryFee,
+        deliverySurge,
+        deliverySurgeType: surgeResult.deliverySurgeType || 'none',
+        deliverySurgeValue: surgeResult.deliverySurgeValue || 0,
         message: Number.isFinite(distanceKm)
           ? `Distance: ${Number(distanceKm).toFixed(1)} km`
           : null,

@@ -941,6 +941,31 @@ export const adminAPI = {
       { contextModule: "admin" },
     ),
 
+  /** Zone Delivery Surge (admin) */
+  getZoneDeliverySurges: (params = {}) =>
+    apiClient.get("/food/admin/delivery/zone-surges", {
+      params,
+      contextModule: "admin",
+    }),
+  createZoneDeliverySurge: (body) =>
+    apiClient.post("/food/admin/delivery/zone-surges", body ?? {}, {
+      contextModule: "admin",
+    }),
+  updateZoneDeliverySurge: (id, body) =>
+    apiClient.patch(`/food/admin/delivery/zone-surges/${String(id)}`, body ?? {}, {
+      contextModule: "admin",
+    }),
+  deleteZoneDeliverySurge: (id) =>
+    apiClient.delete(`/food/admin/delivery/zone-surges/${String(id)}`, {
+      contextModule: "admin",
+    }),
+  toggleZoneDeliverySurgeStatus: (id, isEnabled) =>
+    apiClient.patch(
+      `/food/admin/delivery/zone-surges/${String(id)}/status`,
+      { isEnabled: Boolean(isEnabled) },
+      { contextModule: "admin" },
+    ),
+
   /** Earning Addon History (admin) */
   getEarningAddonHistory: (params = {}) =>
     apiClient.get("/food/admin/delivery/earning-addon-history", {

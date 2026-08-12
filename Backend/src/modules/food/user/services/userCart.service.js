@@ -16,8 +16,8 @@ const toNonNegativeNumber = (value, fallback = 0) => {
     return parsed;
 };
 
-const resolveStoredDeliveryFeeGst = (deliveryFee, deliveryFeeGst) => {
-    const base = toNonNegativeNumber(deliveryFee, 0);
+const resolveStoredDeliveryFeeGst = (deliveryFee, deliveryFeeGst, deliverySurge = 0) => {
+    const base = toNonNegativeNumber(deliveryFee, 0) + toNonNegativeNumber(deliverySurge, 0);
     if (base <= 0) return 0;
     const stored = toNonNegativeNumber(deliveryFeeGst, 0);
     if (stored > 0) return stored;
@@ -62,14 +62,15 @@ const normalizePricingSnapshot = (pricing = null) => {
     const tax = toNonNegativeNumber(pricing.tax, 0);
     const packagingFee = toNonNegativeNumber(pricing.packagingFee, 0);
     const deliveryFee = toNonNegativeNumber(pricing.deliveryFee, 0);
-    const deliveryFeeGst = resolveStoredDeliveryFeeGst(deliveryFee, pricing.deliveryFeeGst);
+    const deliverySurge = toNonNegativeNumber(pricing.deliverySurge, 0);
+    const deliveryFeeGst = resolveStoredDeliveryFeeGst(deliveryFee, pricing.deliveryFeeGst, deliverySurge);
     const platformFee = toNonNegativeNumber(pricing.platformFee, 0);
     const discount = toNonNegativeNumber(pricing.discount, 0);
     const deliveryMode = pricing.deliveryMode === 'quick' ? 'quick' : 'basic';
     const quickDeliveryFee = toNonNegativeNumber(pricing.quickDeliveryFee, 0);
     const total = toNonNegativeNumber(
         pricing.total,
-        subtotal + packagingFee + deliveryFee + deliveryFeeGst + platformFee + tax - discount,
+        subtotal + packagingFee + deliveryFee + deliverySurge + deliveryFeeGst + platformFee + tax - discount,
     );
     const savings = toNonNegativeNumber(pricing.savings, 0);
 
@@ -78,6 +79,9 @@ const normalizePricingSnapshot = (pricing = null) => {
         tax,
         packagingFee,
         deliveryFee,
+        deliverySurge,
+        deliverySurgeType: pricing.deliverySurgeType || 'none',
+        deliverySurgeValue: toNonNegativeNumber(pricing.deliverySurgeValue, 0),
         deliveryFeeGst,
         platformFee,
         quickDeliveryFee,
@@ -110,7 +114,11 @@ async function enrichStoredCartPricing(cart, storedPricing) {
     if (storedDelivery > 0) {
         return {
             ...storedPricing,
-            deliveryFeeGst: resolveStoredDeliveryFeeGst(storedDelivery, storedPricing.deliveryFeeGst),
+            deliveryFeeGst: resolveStoredDeliveryFeeGst(
+                storedDelivery,
+                storedPricing.deliveryFeeGst,
+                storedPricing.deliverySurge,
+            ),
         };
     }
 
@@ -131,8 +139,9 @@ async function enrichStoredCartPricing(cart, storedPricing) {
         if (!recalc) return storedPricing;
 
         const recalcDelivery = toNonNegativeNumber(recalc.deliveryFee, 0);
+        const recalcDeliverySurge = toNonNegativeNumber(recalc.deliverySurge, 0);
         const recalcDeliveryGst = toNonNegativeNumber(recalc.deliveryFeeGst, 0);
-        if (recalcDelivery <= 0) return storedPricing;
+        if (recalcDelivery <= 0 && recalcDeliverySurge <= 0) return storedPricing;
 
         const subtotal = toNonNegativeNumber(storedPricing.subtotal, Number(cart.subtotal) || 0);
         const platformFee = toNonNegativeNumber(
@@ -141,11 +150,14 @@ async function enrichStoredCartPricing(cart, storedPricing) {
         );
         const tax = toNonNegativeNumber(storedPricing.tax, toNonNegativeNumber(recalc.tax, 0));
         const discount = toNonNegativeNumber(storedPricing.discount, 0);
-        const total = Math.max(0, subtotal + recalcDelivery + recalcDeliveryGst + platformFee + tax - discount);
+        const total = Math.max(0, subtotal + recalcDelivery + recalcDeliverySurge + recalcDeliveryGst + platformFee + tax - discount);
 
         return {
             ...storedPricing,
             deliveryFee: recalcDelivery,
+            deliverySurge: recalcDeliverySurge,
+            deliverySurgeType: recalc.deliverySurgeType || 'none',
+            deliverySurgeValue: toNonNegativeNumber(recalc.deliverySurgeValue, 0),
             deliveryFeeGst: recalcDeliveryGst,
             deliveryFeeBreakdown: recalc.deliveryFeeBreakdown || storedPricing.deliveryFeeBreakdown || null,
             total,

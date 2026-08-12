@@ -89,7 +89,12 @@ export default function ViewOrderDialog({ isOpen, onOpenChange, order }) {
   const deliveryFeeBase = Number(
     order.deliveryCharge ?? orderPricing.deliveryFee ?? 0,
   )
-  const deliveryFeeGst = resolveDeliveryFeeGst(deliveryFeeBase, order.deliveryFeeGst ?? orderPricing.deliveryFeeGst)
+  const deliverySurge = Number(orderPricing.deliverySurge ?? order.deliverySurge ?? 0)
+  const deliveryFeeGst = resolveDeliveryFeeGst(
+    deliveryFeeBase,
+    order.deliveryFeeGst ?? orderPricing.deliveryFeeGst,
+    deliverySurge,
+  )
   const quickDeliveryFee = Number(
     order.quickDeliveryFee ?? orderPricing.quickDeliveryFee ?? 0,
   )
@@ -513,15 +518,15 @@ export default function ViewOrderDialog({ isOpen, onOpenChange, order }) {
                 <div className="flex items-start justify-between gap-3 text-sm">
                   <div className="min-w-0 flex-1">
                     <span className="text-slate-600">Delivery Charge</span>
-                    {deliveryFeeBase > 0 && (
+                    {(deliveryFeeBase > 0 || deliverySurge > 0) && (
                       <p className="mt-0.5 text-[11px] leading-snug text-slate-500">
-                        {formatDeliveryFeeBreakdownSubtext(deliveryFeeBase, deliveryFeeGst)}
+                        {formatDeliveryFeeBreakdownSubtext(deliveryFeeBase, deliveryFeeGst, "₹", deliverySurge)}
                       </p>
                     )}
                   </div>
                   <span className="shrink-0 whitespace-nowrap text-right font-medium text-slate-900">
-                    {deliveryFeeBase > 0 ? (
-                      formatDialogMoney(getDeliveryFeeTotal(deliveryFeeBase, deliveryFeeGst))
+                    {deliveryFeeBase > 0 || deliverySurge > 0 ? (
+                      formatDialogMoney(getDeliveryFeeTotal(deliveryFeeBase, deliveryFeeGst, deliverySurge))
                     ) : (
                       <span className="text-emerald-600">Free delivery</span>
                     )}

@@ -535,15 +535,23 @@ export default function UserOrderDetails() {
             </div>
             <div className="flex justify-between">
               <span className="text-gray-400 dark:text-gray-500 font-medium">Delivery fee</span>
-              {pricing.deliveryFee === 0 && (
+              {pricing.deliveryFee === 0 && !pricing.deliverySurge && (
                 <span className="text-[#EB590E] text-[10px] font-bold border border-[#EB590E] px-1 rounded ml-1">
                   FREE
                 </span>
               )}
               <span className="text-[#EB590E] font-medium uppercase">
-                {pricing.deliveryFee ? `₹${Number(pricing.deliveryFee).toFixed(2)}` : "Free"}
+                {pricing.deliveryFee || pricing.deliverySurge
+                  ? `₹${(Number(pricing.deliveryFee || 0) + Number(pricing.deliverySurge || 0)).toFixed(2)}`
+                  : "Free"}
               </span>
             </div>
+            {Number(pricing.deliverySurge || 0) > 0 && (
+              <div className="flex justify-between text-xs">
+                <span className="text-orange-600">Delivery surge</span>
+                <span className="text-orange-600 font-medium">₹{Number(pricing.deliverySurge).toFixed(2)}</span>
+              </div>
+            )}
             {Number(pricing.quickDeliveryFee || 0) > 0 && (
               <div className="flex justify-between font-semibold">
                 <span className="text-[#FA0272]">Quick Mode</span>

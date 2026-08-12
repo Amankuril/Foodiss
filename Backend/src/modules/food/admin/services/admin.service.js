@@ -16,6 +16,7 @@ import { FoodOfferUsage } from '../models/offerUsage.model.js';
 import { DeliveryBonusTransaction } from '../models/deliveryBonusTransaction.model.js';
 import { FoodEarningAddon } from '../models/earningAddon.model.js';
 import { FoodEarningAddonHistory } from '../models/earningAddonHistory.model.js';
+import { FoodZoneDeliverySurge } from '../models/zoneDeliverySurge.model.js';
 import { FoodRestaurantCommission } from '../models/restaurantCommission.model.js';
 import { FoodDeliveryCommissionRule } from '../models/deliveryCommissionRule.model.js';
 import { FoodFeeSettings } from '../models/feeSettings.model.js';
@@ -5049,6 +5050,133 @@ export async function deleteEarningAddon(id) {
 export async function toggleEarningAddonStatus(id, status) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
     return FoodEarningAddon.findByIdAndUpdate(id, { $set: { status } }, { new: true }).lean();
+}
+
+// ----- Zone Delivery Surge (admin) -----
+export async function getZoneDeliverySurges(query = {}) {
+    const search = typeof query.search === 'string' ? query.search.trim() : '';
+
+    const zoneFilter = {};
+    if (search) {
+        zoneFilter.$or = [
+            { name: { $regex: search, $options: 'i' } },
+            { zoneName: { $regex: search, $options: 'i' } },
+            { serviceLocation: { $regex: search, $options: 'i' } },
+        ];
+    }
+
+    const [zones, surges] = await Promise.all([
+        FoodZone.find(zoneFilter).sort({ name: 1 }).lean(),
+        FoodZoneDeliverySurge.find({}).populate('zoneId', 'name zoneName serviceLocation isActive country').lean(),
+    ]);
+
+    const surgeByZoneId = new Map(
+        (surges || [])
+            .filter((row) => row?.zoneId)
+            .map((row) => [String(row.zoneId?._id || row.zoneId), row]),
+    );
+
+    const items = (zones || []).map((zone) => {
+        const surge = surgeByZoneId.get(String(zone._id)) || null;
+        return {
+            zone: {
+                _id: zone._id,
+                name: zone.name,
+                zoneName: zone.zoneName || zone.name,
+                serviceLocation: zone.serviceLocation || zone.name,
+                country: zone.country || 'India',
+                isActive: zone.isActive !== false,
+            },
+            surge: surge
+                ? {
+                    _id: surge._id,
+                    zoneId: surge.zoneId?._id || surge.zoneId,
+                    surgeType: surge.surgeType,
+                    surgeValue: Number(surge.surgeValue) || 0,
+                    isEnabled: surge.isEnabled !== false,
+                    createdAt: surge.createdAt,
+                    updatedAt: surge.updatedAt,
+                }
+                : null,
+        };
+    });
+
+    const configuredZoneIds = new Set(
+        (surges || []).map((row) => String(row.zoneId?._id || row.zoneId)),
+    );
+    const availableZones = (zones || [])
+        .filter((zone) => !configuredZoneIds.has(String(zone._id)))
+        .map((zone) => ({
+            _id: zone._id,
+            name: zone.name,
+            zoneName: zone.zoneName || zone.name,
+            serviceLocation: zone.serviceLocation || zone.name,
+            isActive: zone.isActive !== false,
+        }));
+
+    return { items, availableZones, total: items.length };
+}
+
+export async function createZoneDeliverySurge(body) {
+    if (!body?.zoneId || !mongoose.Types.ObjectId.isValid(String(body.zoneId))) {
+        throw new ValidationError('Valid zone is required');
+    }
+
+    const zone = await FoodZone.findById(body.zoneId).lean();
+    if (!zone) throw new ValidationError('Zone not found');
+
+    const existing = await FoodZoneDeliverySurge.findOne({ zoneId: body.zoneId }).lean();
+    if (existing) throw new ValidationError('Surge already exists for this zone. Edit the existing rule instead.');
+
+    const created = await FoodZoneDeliverySurge.create({
+        zoneId: body.zoneId,
+        surgeType: body.surgeType,
+        surgeValue: Number(body.surgeValue) || 0,
+        isEnabled: body.isEnabled !== false,
+    });
+
+    return created.toObject();
+}
+
+export async function updateZoneDeliverySurge(id, body) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+
+    const doc = await FoodZoneDeliverySurge.findById(id);
+    if (!doc) return null;
+
+    if (body.zoneId !== undefined) {
+        if (!mongoose.Types.ObjectId.isValid(String(body.zoneId))) {
+            throw new ValidationError('Valid zone is required');
+        }
+        const duplicate = await FoodZoneDeliverySurge.findOne({
+            zoneId: body.zoneId,
+            _id: { $ne: id },
+        }).lean();
+        if (duplicate) throw new ValidationError('Another surge rule already exists for this zone');
+        doc.zoneId = body.zoneId;
+    }
+
+    if (body.surgeType !== undefined) doc.surgeType = body.surgeType;
+    if (body.surgeValue !== undefined) doc.surgeValue = Number(body.surgeValue) || 0;
+    if (body.isEnabled !== undefined) doc.isEnabled = Boolean(body.isEnabled);
+
+    await doc.save();
+    return doc.toObject();
+}
+
+export async function deleteZoneDeliverySurge(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const deleted = await FoodZoneDeliverySurge.findByIdAndDelete(id).lean();
+    return deleted ? { id } : null;
+}
+
+export async function toggleZoneDeliverySurgeStatus(id, isEnabled) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    return FoodZoneDeliverySurge.findByIdAndUpdate(
+        id,
+        { $set: { isEnabled: Boolean(isEnabled) } },
+        { new: true },
+    ).lean();
 }
 
 // ----- Earning Addon History (admin) -----

@@ -466,6 +466,7 @@ export async function createOrder(userId, dto) {
         deliveryAddress,
         couponCode: dto.pricing?.couponCode || undefined,
         deliveryMode: dto.deliveryMode || "basic",
+        zoneId: dto.zoneId ? String(dto.zoneId) : (restaurant.zoneId ? String(restaurant.zoneId) : undefined),
       },
       { at: orderAt, restaurant, skipAvailabilityCheck: true },
     );
@@ -476,6 +477,9 @@ export async function createOrder(userId, dto) {
       tax: Number(pricingResult.pricing?.tax) || 0,
       packagingFee: Number(pricingResult.pricing?.packagingFee) || 0,
       deliveryFee: Number(pricingResult.pricing?.deliveryFee) || 0,
+      deliverySurge: Number(pricingResult.pricing?.deliverySurge) || 0,
+      deliverySurgeType: pricingResult.pricing?.deliverySurgeType || 'none',
+      deliverySurgeValue: Number(pricingResult.pricing?.deliverySurgeValue) || 0,
       deliveryFeeGst: Number(pricingResult.pricing?.deliveryFeeGst) || 0,
       platformFee: Number(pricingResult.pricing?.platformFee) || 0,
       quickDeliveryFee: Number(pricingResult.pricing?.quickDeliveryFee) || 0,
@@ -532,7 +536,8 @@ export async function createOrder(userId, dto) {
     }
 
     const feeSettings = await loadActiveFeeSettings();
-    const riderEarning = calculateRiderEarning(feeSettings, distanceKm) || 0;
+    const deliverySurge = Number(normalizedPricing.deliverySurge) || 0;
+    const riderEarning = calculateRiderEarning(feeSettings, distanceKm, deliverySurge) || 0;
     
     // Calculate restaurant commission from subtotal
     let restaurantCommission = 0;
@@ -552,6 +557,7 @@ export async function createOrder(userId, dto) {
     // accounts for the admin discount share) once the initial transaction is created.
     const platformProfit =
       (Number.isFinite(normalizedPricing.deliveryFee) ? normalizedPricing.deliveryFee : 0) +
+      (Number.isFinite(normalizedPricing.deliverySurge) ? normalizedPricing.deliverySurge : 0) +
       (Number.isFinite(normalizedPricing.deliveryFeeGst) ? normalizedPricing.deliveryFeeGst : 0) +
       (Number.isFinite(normalizedPricing.platformFee) ? normalizedPricing.platformFee : 0) +
       restaurantCommission -

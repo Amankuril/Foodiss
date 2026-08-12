@@ -43,6 +43,10 @@ const pricingSchema = new mongoose.Schema(
         tax: { type: Number, default: 0, min: 0 },
         packagingFee: { type: Number, default: 0, min: 0 },
         deliveryFee: { type: Number, default: 0, min: 0 },
+        /** Extra zone surge added on top of base delivery fee (also paid to rider). */
+        deliverySurge: { type: Number, default: 0, min: 0 },
+        deliverySurgeType: { type: String, enum: ['none', 'percentage', 'flat'], default: 'none' },
+        deliverySurgeValue: { type: Number, default: 0, min: 0 },
         deliveryFeeGst: { type: Number, default: 0, min: 0 },
         platformFee: { type: Number, default: 0, min: 0 },
         /** Extra surcharge when user selects Quick Mode (also included in platformFee). */

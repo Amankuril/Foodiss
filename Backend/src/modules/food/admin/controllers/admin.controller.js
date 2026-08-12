@@ -6,7 +6,7 @@ import { validateCreateOfferDto, validateUpdateOfferCartVisibilityDto } from '..
 import { validateAddDeliveryBonusDto } from '../validators/deliveryBonus.validator.js';
 import { validateCheckCompletionsDto, validateEarningAddonHistoryActionDto, validateEarningAddonUpsertDto, validateToggleEarningAddonStatusDto } from '../validators/earningAddon.validator.js';
 import { validateDeliveryCommissionRuleDto, validateOptionalStatusDto, validateRestaurantCommissionUpsertDto } from '../validators/commission.validator.js';
-import { validateFeeSettingsUpsertDto } from '../validators/feeSettings.validator.js';
+import { validateZoneDeliverySurgeUpsertDto } from '../validators/zoneDeliverySurge.validator.js';
 import { validateDeliveryEmergencyHelpUpsertDto } from '../validators/deliveryEmergencyHelp.validator.js';
 import { validateReferralSettingsUpsertDto } from '../validators/referralSettings.validator.js';
 import { ADMIN_ACTIONS, ADMIN_PERMISSION_SECTIONS, sanitizeAdminPermissions } from '../../../../constants/permissions.js';
@@ -955,6 +955,88 @@ export async function toggleEarningAddonStatus(req, res, next) {
             return res.status(404).json({ success: false, message: 'Earning addon not found' });
         }
         res.status(200).json({ success: true, message: 'Status updated successfully', data: { earningAddon: updated } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// ----- Zone Delivery Surge (admin) -----
+export async function getZoneDeliverySurges(req, res, next) {
+    try {
+        const data = await adminService.getZoneDeliverySurges(req.query || {});
+        res.status(200).json({ success: true, message: 'Zone delivery surges fetched successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function createZoneDeliverySurge(req, res, next) {
+    try {
+        const body = validateZoneDeliverySurgeUpsertDto(req.body || {});
+        const created = await adminService.createZoneDeliverySurge(body);
+        res.status(201).json({
+            success: true,
+            message: 'Zone delivery surge created successfully',
+            data: { surge: created },
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function updateZoneDeliverySurge(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid surge id' });
+        }
+        const body = validateZoneDeliverySurgeUpsertDto(req.body || {});
+        const updated = await adminService.updateZoneDeliverySurge(id, body);
+        if (!updated) {
+            return res.status(404).json({ success: false, message: 'Zone delivery surge not found' });
+        }
+        res.status(200).json({
+            success: true,
+            message: 'Zone delivery surge updated successfully',
+            data: { surge: updated },
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function deleteZoneDeliverySurge(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid surge id' });
+        }
+        const result = await adminService.deleteZoneDeliverySurge(id);
+        if (!result) {
+            return res.status(404).json({ success: false, message: 'Zone delivery surge not found' });
+        }
+        res.status(200).json({ success: true, message: 'Zone delivery surge deleted successfully', data: result });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function toggleZoneDeliverySurgeStatus(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid surge id' });
+        }
+        const isEnabled = req.body?.isEnabled !== false;
+        const updated = await adminService.toggleZoneDeliverySurgeStatus(id, isEnabled);
+        if (!updated) {
+            return res.status(404).json({ success: false, message: 'Zone delivery surge not found' });
+        }
+        res.status(200).json({
+            success: true,
+            message: 'Zone delivery surge status updated successfully',
+            data: { surge: updated },
+        });
     } catch (error) {
         next(error);
     }

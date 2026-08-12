@@ -301,12 +301,13 @@ export default function Orders() {
             }, 0)
             const subtotal = toNum(pricing.subtotal ?? pricing.itemTotal ?? pricing.itemsTotal ?? itemSubtotal)
             const deliveryFee = toNum(pricing.deliveryFee ?? pricing.deliveryCharge ?? pricing.shippingFee ?? 0)
+            const deliverySurge = toNum(pricing.deliverySurge ?? 0)
             const packagingFee = toNum(pricing.packagingFee ?? pricing.packagingCharges ?? 0)
             const platformFee = toNum(pricing.platformFee ?? pricing.serviceFee ?? pricing.convenienceFee ?? 0)
             const quickDeliveryFee = toNum(pricing.quickDeliveryFee ?? 0)
             const tax = toNum(pricing.tax ?? pricing.taxesAndCharges ?? pricing.taxAndCharges ?? 0)
             const discount = toNum(pricing.discount ?? 0)
-            const computedTotal = Math.max(0, subtotal + deliveryFee + packagingFee + platformFee + tax - discount)
+            const computedTotal = Math.max(0, subtotal + deliveryFee + deliverySurge + packagingFee + platformFee + tax - discount)
             const total = toNum(pricing.total ?? order.total ?? computedTotal) || computedTotal
 
             return {
@@ -332,6 +333,7 @@ export default function Orders() {
               total,
               subtotal,
               deliveryFee,
+              deliverySurge,
               packagingFee,
               platformFee,
               quickDeliveryFee,
@@ -931,9 +933,17 @@ Order again from this restaurant in the ${companyName} app.`
                     <div className="flex justify-between text-xs">
                       <span className="text-gray-600 dark:text-gray-400">Delivery Fee</span>
                       <span className="text-gray-800 dark:text-gray-200 font-medium">
-                        {order.deliveryFee > 0 ? `\u20B9${order.deliveryFee.toFixed(2)}` : "Free"}
+                        {order.deliveryFee > 0 || order.deliverySurge > 0
+                          ? `\u20B9${(Number(order.deliveryFee || 0) + Number(order.deliverySurge || 0)).toFixed(2)}`
+                          : "Free"}
                       </span>
                     </div>
+                    {order.deliverySurge > 0 && (
+                      <div className="flex justify-between text-xs">
+                        <span className="text-orange-600">Includes surge</span>
+                        <span className="text-orange-600 font-medium">{"\u20B9"}{order.deliverySurge.toFixed(2)}</span>
+                      </div>
+                    )}
                     {order.quickDeliveryFee > 0 && (
                       <div className="flex justify-between text-xs font-semibold">
                         <span className="text-[#FA0272]">Quick Mode</span>

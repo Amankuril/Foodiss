@@ -115,6 +115,7 @@ export const NewOrderModal = ({ order, onAccept, onReject, onMinimize, swapGuard
   if (!lockedOrder) return null;
 
   const earnings = lockedOrder.earnings || lockedOrder.riderEarning || (lockedOrder.orderAmount ? lockedOrder.orderAmount * 0.1 : 0);
+  const deliverySurge = Number(lockedOrder.deliverySurge || lockedOrder.pricing?.deliverySurge || 0);
   const restaurantName =
     lockedOrder.restaurantName ||
     lockedOrder.restaurant_name ||
@@ -167,6 +168,11 @@ export const NewOrderModal = ({ order, onAccept, onReject, onMinimize, swapGuard
                 <span className="text-xl font-bold opacity-80">₹</span>
                 <h2 className="text-4xl font-black tracking-tighter">{Number(earnings || 0).toFixed(2)}</h2>
               </div>
+              {deliverySurge > 0 && (
+                <p className="text-[10px] text-white/75 mt-1 font-semibold">
+                  Includes ₹{deliverySurge.toFixed(0)} zone surge
+                </p>
+              )}
             </div>
             <div className="bg-black/15 border border-white/20 rounded-2xl px-4 py-2 text-white flex flex-col items-center min-w-[80px]">
               <span className="text-[9px] font-black uppercase tracking-widest opacity-60">Expires</span>
