@@ -3,6 +3,8 @@ import { Upload, Trash2, Image as ImageIcon, Loader2, AlertCircle, CheckCircle2,
 import api from "@food/api"
 import { adminAPI } from "@food/api"
 import { getModuleToken } from "@food/utils/auth"
+import { resolveMediaUrl } from "@food/utils/common"
+import { invalidatePublicAppConfig } from "@food/services/publicAppConfig"
 import { Input } from "@food/components/ui/input"
 import { Label } from "@food/components/ui/label"
 import { Button } from "@food/components/ui/button"
@@ -899,6 +901,7 @@ export default function LandingPageManagement() {
 
       if (res.data?.success) {
         setSuccess(`${label} icon updated successfully!`)
+        invalidatePublicAppConfig()
         setTimeout(() => setSuccess(null), 3000)
         await fetchExploreMore()
       }
@@ -1505,7 +1508,7 @@ export default function LandingPageManagement() {
                   {topBanners.map((banner, index) => (
                     <div key={banner._id} className="border border-slate-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
                       <div className="relative aspect-video bg-slate-100">
-                        <img src={banner.image || banner.imageUrl} alt={`Top Banner ${index + 1}`} className="w-full h-full object-cover" />
+                        <img src={resolveMediaUrl(banner.image || banner.imageUrl)} alt={`Top Banner ${index + 1}`} className="w-full h-full object-cover" />
                         <div className="absolute top-2 right-2">
                           <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
                             {banner.isActive ? 'Active' : 'Inactive'}
@@ -1652,7 +1655,7 @@ export default function LandingPageManagement() {
                   {banners.map((banner, index) => (
                     <div key={banner._id} className="border border-slate-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
                       <div className="relative aspect-video bg-slate-100">
-                        <img src={banner.imageUrl} alt={`Hero Banner ${index + 1}`} className="w-full h-full object-cover" />
+                        <img src={resolveMediaUrl(banner.imageUrl)} alt={`Hero Banner ${index + 1}`} className="w-full h-full object-cover" />
                         <div className="absolute top-2 right-2">
                           <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
                             {banner.isActive ? 'Active' : 'Inactive'}
@@ -1798,7 +1801,7 @@ export default function LandingPageManagement() {
                   {under250Banners.map((banner, index) => (
                     <div key={banner._id} className="border border-slate-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
                       <div className="relative aspect-video bg-slate-100">
-                        <img src={banner.imageUrl} alt={`Switch 99 Banner ${index + 1}`} className="w-full h-full object-cover" />
+                        <img src={resolveMediaUrl(banner.imageUrl)} alt={`Switch 99 Banner ${index + 1}`} className="w-full h-full object-cover" />
                         <div className="absolute top-2 right-2">
                           <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
                             {banner.isActive ? 'Active' : 'Inactive'}
@@ -1914,7 +1917,7 @@ export default function LandingPageManagement() {
                   {diningBanners.map((banner, index) => (
                     <div key={banner._id} className="border border-slate-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
                       <div className="relative aspect-video bg-slate-100">
-                        <img src={banner.imageUrl} alt={`Dining Banner ${index + 1}`} className="w-full h-full object-cover" />
+                        <img src={resolveMediaUrl(banner.imageUrl)} alt={`Dining Banner ${index + 1}`} className="w-full h-full object-cover" />
                         <div className="absolute top-2 right-2">
                           <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
                             {banner.isActive ? 'Active' : 'Inactive'}
@@ -2079,10 +2082,18 @@ export default function LandingPageManagement() {
                   {[
                     { id: 'offers', label: 'Offers', link: '/user/offers' },
                     { id: 'gourmet', label: 'Gourmet', link: '/user/gourmet' },
-                    { id: 'collection', label: 'Collections', link: '/user/profile/favorites' }
+                    { id: 'under-250', label: 'Switch 99', link: '/user/under-250' },
+                    { id: 'collections', label: 'Collections', link: '/user/profile/favorites' }
                   ].map((item) => {
-                    // Find matching item from DB
-                    const dbItem = exploreMore.find(i => i.label?.toLowerCase() === item.label.toLowerCase())
+                    const dbItem = exploreMore.find((icon) => {
+                      const iconLabel = String(icon.label || "").trim().toLowerCase()
+                      const slotLabel = item.label.toLowerCase()
+                      if (iconLabel === slotLabel) return true
+                      if (item.id === "under-250") {
+                        return iconLabel.includes("switch") || iconLabel.includes("99")
+                      }
+                      return false
+                    })
 
                     return (
                       <div key={item.id} className="border border-slate-200 rounded-lg p-4 flex flex-col items-center relative">
@@ -2091,7 +2102,7 @@ export default function LandingPageManagement() {
                         <div className="w-24 h-24 mb-4 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center overflow-hidden relative group">
                           {dbItem?.imageUrl ? (
                             <img
-                              src={dbItem.imageUrl}
+                              src={resolveMediaUrl(dbItem.imageUrl)}
                               alt={item.label}
                               className="w-full h-full object-contain p-2"
                             />

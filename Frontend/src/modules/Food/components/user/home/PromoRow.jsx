@@ -1,43 +1,59 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import discountPromoIcon from "@food/assets/category-icons/discount_promo.png";
 import gourmetPromoIcon from "@food/assets/explore more icons/gourmet.png";
 import pricePromoIcon from "@food/assets/category-icons/price_promo.png";
 import collectionPromoIcon from "@food/assets/explore more icons/collection.png";
 
-export default function PromoRow({ handleVegModeChange, navigate, isVegMode, toggleRef }) {
-  const promoCardsData = [
-    {
-      id: 'offers',
-      title: "Hot Deals",
-      value: "Offers",
-      icon: discountPromoIcon,
-    },
-    {
-      id: 'gourmet',
-      title: "Premium",
-      value: "Gourmet",
-      icon: gourmetPromoIcon,
-    },
-    {
-      id: 'under-250',
-      title: "Under ₹99",
-      value: "Switch 99",
-      icon: pricePromoIcon,
-    },
-    {
-      id: 'collections',
-      title: "Favorites",
-      value: "Collections",
-      icon: collectionPromoIcon,
-    },
-  ];
+const DEFAULT_PROMO_ITEMS = [
+  {
+    id: 'offers',
+    title: "Hot Deals",
+    label: "Offers",
+    image: discountPromoIcon,
+    href: '/food/user/offers',
+  },
+  {
+    id: 'gourmet',
+    title: "Premium",
+    label: "Gourmet",
+    image: gourmetPromoIcon,
+    href: '/food/user/gourmet',
+  },
+  {
+    id: 'under-250',
+    title: "Under ₹99",
+    label: "Switch 99",
+    image: pricePromoIcon,
+    href: '/food/user/under-250',
+  },
+  {
+    id: 'collections',
+    title: "Favorites",
+    label: "Collections",
+    image: collectionPromoIcon,
+    href: '/food/user/profile/favorites',
+  },
+];
+
+export default function PromoRow({ items, navigate, toggleRef }) {
+  const promoCardsData = useMemo(() => {
+    const source = Array.isArray(items) && items.length > 0 ? items : DEFAULT_PROMO_ITEMS;
+
+    return source.map((item) => ({
+      id: item.id,
+      title: item.title || DEFAULT_PROMO_ITEMS.find((slot) => slot.id === item.id)?.title || "",
+      value: item.label || item.value || "",
+      icon: item.image || item.icon,
+      href: item.href,
+    }));
+  }, [items]);
 
   return (
     <div className="grid grid-cols-4 gap-2 px-3 py-6 bg-transparent justify-items-center w-full max-w-[500px] mx-auto">
       {promoCardsData.map((promo, idx) => (
         <motion.div
-          key={idx}
+          key={promo.id || idx}
           ref={promo.id === 'gourmet' ? toggleRef : null}
           initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
@@ -46,22 +62,17 @@ export default function PromoRow({ handleVegModeChange, navigate, isVegMode, tog
           whileTap={{ scale: 0.95 }}
           className="flex flex-col items-center gap-1.5 group cursor-pointer w-full"
           onClick={() => {
-            if (promo.id === 'gourmet') navigate('/food/user/gourmet');
-            else if (promo.id === 'offers') navigate('/food/user/offers');
-            else if (promo.id === 'under-250') navigate('/food/user/under-250');
-            else if (promo.id === 'collections') navigate('/food/user/profile/favorites');
+            if (promo.href) navigate(promo.href);
           }}
         >
-          {/* Floating Minimalist Image */}
-          <div className="relative w-14 h-14 sm:w-16 sm:h-16 flex items-center justify-center p-0.5">
+          <div className="relative flex aspect-square w-14 shrink-0 items-center justify-center sm:w-16">
             <img
               src={promo.icon}
               alt={promo.value}
-              className="w-full h-full object-contain relative z-20 transition-transform duration-500 group-hover:scale-110 drop-shadow-sm"
+              className="h-full w-full object-contain object-center transition-transform duration-500 group-hover:scale-110 drop-shadow-sm"
             />
           </div>
 
-          {/* Clean Typography */}
           <div className="flex flex-col items-center text-center w-full">
             <span className="text-[12px] font-black text-gray-900 dark:text-gray-100 tracking-tight leading-tight mb-0.5">
               {promo.value}

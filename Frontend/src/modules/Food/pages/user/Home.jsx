@@ -121,7 +121,7 @@ import OutOfZoneScreen from "@food/components/user/OutOfZoneScreen";
 // Explore More Icons
 import exploreOffers from "@food/assets/explore more icons/offers.png";
 import exploreGourmet from "@food/assets/explore more icons/gourmet.png";
-import exploreTop10 from "@food/assets/explore more icons/top 10.png";
+import exploreSwitch99 from "@food/assets/category-icons/price_promo.png";
 import exploreCollection from "@food/assets/explore more icons/collection.png";
 
 // Banner images for hero carousel - will be fetched from API
@@ -1227,23 +1227,63 @@ export default function Home() {
   }, []);
 
 
+  const normalizeExploreHref = useCallback((link, fallback) => {
+    if (!link || !String(link).trim()) return fallback;
+    const trimmed = String(link).trim();
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    if (trimmed.startsWith("/food/")) return trimmed;
+    if (trimmed.startsWith("/user/")) return `/food${trimmed}`;
+    return trimmed.startsWith("/") ? fallback : fallback;
+  }, []);
+
+  const findExploreIconForSlot = useCallback((apiItems, slot) => {
+    if (!Array.isArray(apiItems) || apiItems.length === 0) return null;
+    const slotLabel = String(slot.label || "").trim().toLowerCase();
+
+    return apiItems.find((ai) => {
+      const label = String(ai.label || ai.name || "").trim().toLowerCase();
+      if (!label) return false;
+      if (label === slotLabel) return true;
+
+      if (slot.id === "under-250") {
+        return (
+          label.includes("switch")
+          || label.includes("99")
+          || (label.includes("under") && (label.includes("250") || label.includes("99")))
+        );
+      }
+
+      return false;
+    }) || null;
+  }, []);
+
   // Merge API explore items with fallback to ensure all 4 cards are shown
   const finalExploreItems = useMemo(() => {
     const fallback = [
       {
         id: "offers",
+        title: "Hot Deals",
         label: "Offers",
         image: exploreOffers,
         href: "/food/user/offers",
       },
       {
         id: "gourmet",
+        title: "Premium",
         label: "Gourmet",
         image: exploreGourmet,
         href: "/food/user/gourmet",
       },
       {
-        id: "collection",
+        id: "under-250",
+        title: "Under ₹99",
+        label: "Switch 99",
+        image: exploreSwitch99,
+        href: "/food/user/under-250",
+      },
+      {
+        id: "collections",
+        title: "Favorites",
         label: "Collections",
         image: exploreCollection,
         href: "/food/user/profile/favorites",
@@ -1253,26 +1293,24 @@ export default function Home() {
     if (!landingExploreMore || landingExploreMore.length === 0) return fallback;
 
     return fallback.map((item) => {
-      const apiItem = landingExploreMore.find(
-        (ai) => ai.label?.toLowerCase() === item.label?.toLowerCase(),
-      );
-      if (apiItem) {
-        const href = apiItem.link
-          ? apiItem.link.startsWith("/")
-            ? apiItem.link
-            : `/${apiItem.link}`
-          : item.href;
-        return {
-          ...item,
-          image:
-            normalizeImageUrl(apiItem.imageUrl || apiItem.image || "") ||
-            item.image,
-          href,
-        };
-      }
-      return item;
+      const apiItem = findExploreIconForSlot(landingExploreMore, item);
+      if (!apiItem) return item;
+
+      return {
+        ...item,
+        label: apiItem.label || item.label,
+        image:
+          normalizeImageUrl(apiItem.imageUrl || apiItem.iconUrl || apiItem.image || "")
+          || item.image,
+        href: normalizeExploreHref(apiItem.link || apiItem.targetPath, item.href),
+      };
     });
-  }, [landingExploreMore, normalizeImageUrl]);
+  }, [
+    landingExploreMore,
+    normalizeImageUrl,
+    normalizeExploreHref,
+    findExploreIconForSlot,
+  ]);
 
   const normalizedLandingCategories = useMemo(() => {
     return (landingCategories || []).map((category, index) => ({
@@ -3185,10 +3223,9 @@ export default function Home() {
 
 
 
-        <PromoRow 
-          handleVegModeChange={handleVegModeChange}
+        <PromoRow
+          items={finalExploreItems}
           navigate={navigate}
-          isVegMode={vegMode}
           toggleRef={vegModeToggleRef}
         />
 

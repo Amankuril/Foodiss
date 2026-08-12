@@ -40,11 +40,11 @@ export default function AdminAuthHero({ themeColor, logoUrl }) {
 
       <div className="relative z-10 flex h-full flex-col justify-between p-8 xl:p-10">
         <div className="absolute right-8 top-8 xl:right-10 xl:top-10">
-          <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl bg-white/10 ring-1 ring-white/15 backdrop-blur-sm">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/10 p-2 ring-1 ring-white/15 backdrop-blur-sm">
             <img
               src={logoUrl}
               alt={`${companyName} logo`}
-              className="h-full w-full scale-[1.65] object-contain"
+              className="h-full w-full object-contain"
               loading="lazy"
               onError={(e) => {
                 if (e.target.src !== quickSpicyLogo) {

@@ -177,11 +177,11 @@ export default function AdminLogin() {
             {/* Header */}
             <div className="mb-7 text-center lg:text-left">
               <div className="mb-5 flex justify-center lg:justify-start">
-                <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-200">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white p-2 shadow-sm ring-1 ring-gray-200">
                   <img
                     src={logoUrl}
                     alt={`${companyName} logo`}
-                    className="h-full w-full scale-[1.65] object-contain"
+                    className="h-full w-full object-contain"
                     loading="lazy"
                     onError={(e) => {
                       if (e.target.src !== quickSpicyLogo) {
