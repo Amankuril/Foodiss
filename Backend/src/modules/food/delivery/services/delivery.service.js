@@ -242,6 +242,23 @@ export const updateDeliveryPartnerDetails = async (userId, payload) => {
         throw new ValidationError('Delivery partner not found');
     }
 
+    if (payload?.name !== undefined) {
+        const nextName = String(payload.name || '').trim().replace(/\s+/g, ' ');
+        if (!nextName) {
+            throw new ValidationError('Name is required');
+        }
+        if (nextName.length < 2) {
+            throw new ValidationError('Name must be at least 2 characters');
+        }
+        if (nextName.length > 60) {
+            throw new ValidationError('Name must be at most 60 characters');
+        }
+        if (!/^[A-Za-z][A-Za-z\s.'-]*$/.test(nextName)) {
+            throw new ValidationError('Name should only contain letters');
+        }
+        partner.name = nextName;
+    }
+
     const vehicle = payload?.vehicle;
     if (vehicle && typeof vehicle === 'object') {
         if (vehicle.number !== undefined && String(vehicle.number || '').trim().toUpperCase() !== String(partner.vehicleNumber || '').trim().toUpperCase()) {

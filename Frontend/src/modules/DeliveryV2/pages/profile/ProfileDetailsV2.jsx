@@ -31,6 +31,9 @@ export const ProfileDetailsV2 = () => {
   const [vehicleType, setVehicleType] = useState("")
   const [showVehiclePopup, setShowVehiclePopup] = useState(false)
   const [vehicleInput, setVehicleInput] = useState({ number: "", brand: "", type: "" })
+  const [showNamePopup, setShowNamePopup] = useState(false)
+  const [nameInput, setNameInput] = useState("")
+  const [isUpdatingName, setIsUpdatingName] = useState(false)
   const [selectedDocument, setSelectedDocument] = useState(null)
   const [showDocumentModal, setShowDocumentModal] = useState(false)
   const [showBankDetailsPopup, setShowBankDetailsPopup] = useState(false)
@@ -61,6 +64,7 @@ export const ProfileDetailsV2 = () => {
   const upiQrCameraInputRef = useRef(null)
 
   useCloseOnBrowserBack(showVehiclePopup, () => setShowVehiclePopup(false), "vehicle-popup")
+  useCloseOnBrowserBack(showNamePopup, () => setShowNamePopup(false), "name-popup")
   useCloseOnBrowserBack(showBankDetailsPopup, () => setShowBankDetailsPopup(false), "bank-details-popup")
   useCloseOnBrowserBack(showDocumentModal, () => setShowDocumentModal(false), "document-viewer")
 
@@ -521,7 +525,21 @@ export const ProfileDetailsV2 = () => {
         </div>
 
         <div className="text-center pt-6">
-           <h2 className="text-3xl font-black text-gray-900 tracking-tight">{profile?.name || "Partner"}</h2>
+           <div className="flex items-center justify-center gap-2">
+              <h2 className="text-3xl font-black text-gray-900 tracking-tight">{profile?.name || "Partner"}</h2>
+              <button
+                type="button"
+                onClick={() => {
+                  setNameInput(profile?.name || "")
+                  setShowNamePopup(true)
+                }}
+                className="p-2 rounded-xl bg-white border border-gray-100 text-gray-400 hover:text-orange-500 hover:bg-gray-50 transition-all active:scale-90"
+                aria-label="Edit name"
+                title="Edit name"
+              >
+                <Edit2 className="w-4 h-4" />
+              </button>
+           </div>
            <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mt-2 mb-5">
               Delivery Partner <span className="mx-1">•</span> {profile?.location?.city || "Unknown"}
            </p>
@@ -747,6 +765,59 @@ export const ProfileDetailsV2 = () => {
                   {isDeletingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : "Yes, Remove"}
                 </button>
             </div>
+         </div>
+      </BottomPopup>
+
+      {/* Name Popup */}
+      <BottomPopup isOpen={showNamePopup} onClose={() => setShowNamePopup(false)} title="Edit Name" closeOnHandleClick={true} showCloseButton={false}>
+         <div className="space-y-4 pb-10">
+            <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100">
+                <div className="flex items-center gap-4 w-full">
+                    <div className="w-8 h-8 flex items-center justify-center">
+                        <User className="w-5 h-5 text-orange-500" />
+                    </div>
+                    <div className="flex-1">
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Full Name</p>
+                        <input
+                            type="text"
+                            value={nameInput}
+                            onChange={(e) => {
+                              const val = e.target.value.replace(/[^a-zA-Z\s.'-]/g, "")
+                              if (val.length > 60) return
+                              setNameInput(val)
+                            }}
+                            placeholder="Enter your name"
+                            className="w-full bg-transparent text-lg font-black text-black outline-none border-b-2 border-transparent focus:border-orange-500 placeholder:text-gray-200"
+                        />
+                    </div>
+                </div>
+            </div>
+            <button
+               onClick={async () => {
+                 const nextName = String(nameInput || "").trim().replace(/\s+/g, " ")
+                 if (!nextName) return toast.error("Name is required")
+                 if (nextName.length < 2) return toast.error("Name must be at least 2 characters")
+                 if (!/^[A-Za-z][A-Za-z\s.'-]*$/.test(nextName)) {
+                   return toast.error("Name should only contain letters")
+                 }
+                 try {
+                   setIsUpdatingName(true)
+                   await deliveryAPI.updateProfileDetails({ name: nextName })
+                   setProfile((prev) => prev ? { ...prev, name: nextName } : prev)
+                   setShowNamePopup(false)
+                   toast.success("Name updated")
+                   await refreshProfile()
+                 } catch (e) {
+                   toast.error(e?.response?.data?.message || "Failed to update name")
+                 } finally {
+                   setIsUpdatingName(false)
+                 }
+               }}
+               disabled={isUpdatingName}
+               className="w-full bg-black text-white py-5 rounded-[1.5rem] font-black uppercase tracking-[0.2em] shadow-xl hover:bg-gray-900 transition-all active:scale-95 disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+               {isUpdatingName ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save Changes"}
+            </button>
          </div>
       </BottomPopup>
 
