@@ -7,6 +7,7 @@ import { useCart } from "@food/context/CartContext"
 import { useLocationSelector } from "./UserLayout"
 import { FaLocationDot } from "react-icons/fa6"
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
+import { isPlaceholderLocationText } from "@food/utils/deliveryLocationUtils"
 import quickSpicyLogo from "@food/assets/switcheats-logo.png"
 
 export default function PageNavbar({
@@ -44,21 +45,6 @@ export default function PageNavbar({
   useEffect(() => {
     if (autoLocationAttemptedRef.current || loading || !requestLocationRef.current) return
 
-    // Preserve saved location for logged-in users.
-    // For guests, allow auto-fetch on app open.
-    try {
-      const token = localStorage.getItem("user_accessToken") || localStorage.getItem("accessToken")
-      const isAuthenticated = Boolean(token && token !== "null" && token !== "undefined")
-      const storedRaw = localStorage.getItem("userLocation")
-      const stored = storedRaw ? JSON.parse(storedRaw) : null
-      const lat = Number(stored?.latitude)
-      const lng = Number(stored?.longitude)
-      const hasStoredCoords = Number.isFinite(lat) && Number.isFinite(lng)
-      if (isAuthenticated && hasStoredCoords) return
-    } catch {
-      // ignore parsing errors and continue to auto-fetch as fallback for first open
-    }
-
     const hasMissingOrPlaceholderLocation =
       !location ||
       location.formattedAddress === "Select location" ||
@@ -84,7 +70,7 @@ export default function PageNavbar({
           debugLog("?? Geolocation permission not granted; waiting for user action")
           return
         }
-        const fetchedLocation = await requestLocationRef.current()
+        const fetchedLocation = await requestLocationRef.current({ fresh: true, silent: true })
         if (cancelled) return
 
         if (fetchedLocation &&
@@ -186,7 +172,7 @@ export default function PageNavbar({
           sub: state || ""
         }
       }
-      return { main: "Select location", sub: "" }
+      return { main: "Detecting location...", sub: "" }
     }
 
     // Split address by comma
@@ -211,7 +197,7 @@ export default function PageNavbar({
     }
 
     return {
-      main: mainLocation || "Select location",
+      main: mainLocation || "Detecting location...",
       sub: subLocation
     }
   }
@@ -640,8 +626,7 @@ export default function PageNavbar({
     }
     // Final fallback: Show "Select location" instead of coordinates
     else if (!mainLocation) {
-      mainLocation = "Select location"
-      debugLog("?? No valid location found, showing placeholder")
+      mainLocation = loading ? "Detecting location..." : (displayAddressText || "Detecting location...")
     }
 
     // If mainLocation is still coordinates, replace with area or city
@@ -651,9 +636,8 @@ export default function PageNavbar({
       } else if (location?.city && location.city.trim() !== "" && location.city !== "Unknown City") {
         mainLocation = location.city
       } else {
-        mainLocation = "Select location"
+        mainLocation = loading ? "Detecting location..." : (displayAddressText || "Current location")
       }
-      debugLog("?? Replaced coordinates with:", mainLocation)
     }
 
     // Final check: If mainLocation is just city name, try one more time to extract from formattedAddress
@@ -957,11 +941,15 @@ export default function PageNavbar({
       }
     }
 
+    if (isPlaceholderLocationText(mainLocation)) {
+      mainLocation = displayAddressText || (loading ? "Detecting location..." : "Current location")
+    }
+
     return {
       main: mainLocation,
       sub: subLocation
     }
-  }, [location])
+  }, [location, displayAddressText, loading])
 
   const mainLocationName = locationDisplay.main
   const subLocationName = locationDisplay.sub

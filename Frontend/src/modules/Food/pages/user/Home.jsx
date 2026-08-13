@@ -1664,7 +1664,31 @@ export default function Home() {
     isOutOfService,
     zoneLoading,
     zoneError,
+    requestLocation,
   } = useDeliveryLocation();
+
+  const requestLocationRef = useRef(requestLocation);
+  requestLocationRef.current = requestLocation;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchLiveHomeLocation = async () => {
+      if (typeof requestLocationRef.current !== "function") return;
+      try {
+        if (cancelled) return;
+        await requestLocationRef.current({ live: true, silent: true });
+      } catch {
+        // GPS can fail (permission / timeout). Cached location remains on screen.
+      }
+    };
+
+    void fetchLiveHomeLocation();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (Array.isArray(exploreIcons)) {

@@ -4,8 +4,20 @@ export const DELIVERY_ADDRESS_MODE_KEY = "deliveryAddressMode"
 export const USER_LOCATION_KEY = "userLocation"
 
 export function getDeliveryAddressMode() {
-  if (typeof window === "undefined") return "saved"
-  return window.localStorage.getItem(DELIVERY_ADDRESS_MODE_KEY) || "saved"
+  if (typeof window === "undefined") return "current"
+  return window.localStorage.getItem(DELIVERY_ADDRESS_MODE_KEY) || "current"
+}
+
+export function isPlaceholderLocationText(value) {
+  const text = String(value || "").trim().toLowerCase()
+  return (
+    !text ||
+    text === "select location" ||
+    text === "select" ||
+    text === "current location" ||
+    text === "unknown city" ||
+    /^-?\d+\.\d+,\s*-?\d+\.\d+$/.test(text)
+  )
 }
 
 export function setDeliveryAddressMode(mode) {
@@ -115,19 +127,30 @@ export function buildDisplayAddressText({
   deliveryAddressMode,
   savedAddressText,
   effectiveLocation,
+  loading = false,
 }) {
-  if (deliveryAddressMode === "saved" && savedAddressText) {
+  if (deliveryAddressMode === "saved" && savedAddressText && !isPlaceholderLocationText(savedAddressText)) {
     return savedAddressText
   }
 
-  if (effectiveLocation?.area && effectiveLocation?.city) {
-    return `${effectiveLocation.area}, ${effectiveLocation.city}`
+  const area = effectiveLocation?.area
+  const city = effectiveLocation?.city
+  if (!isPlaceholderLocationText(area) && !isPlaceholderLocationText(city) && area !== city) {
+    return `${area}, ${city}`
+  }
+  if (!isPlaceholderLocationText(area)) return area
+  if (!isPlaceholderLocationText(city)) return city
+  if (!isPlaceholderLocationText(effectiveLocation?.formattedAddress)) {
+    return effectiveLocation.formattedAddress
+  }
+  if (!isPlaceholderLocationText(effectiveLocation?.address)) {
+    return effectiveLocation.address
   }
 
-  return (
-    effectiveLocation?.area ||
-    effectiveLocation?.city ||
-    effectiveLocation?.formattedAddress ||
-    "Select Location"
-  )
+  const hasCoords =
+    Number.isFinite(Number(effectiveLocation?.latitude)) &&
+    Number.isFinite(Number(effectiveLocation?.longitude))
+
+  if (loading || hasCoords) return "Detecting location..."
+  return "Select Location"
 }

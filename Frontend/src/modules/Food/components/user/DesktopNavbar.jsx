@@ -40,11 +40,14 @@ export default function DesktopNavbar({ showLogo = true }) {
 
     // Show area if available, otherwise show city
     // Priority: area > city > "Select"
-    const areaName = userLocation?.area && userLocation?.area.trim() ? userLocation.area.trim() : null
-    const cityName = userLocation?.city || null
+    const isPlaceholder = (value) => {
+        const text = String(value || "").trim().toLowerCase()
+        return !text || text === "select" || text === "select location" || text === "current location" || text === "unknown city"
+    }
+    const areaName = userLocation?.area && userLocation?.area.trim() && !isPlaceholder(userLocation.area) ? userLocation.area.trim() : null
+    const cityName = userLocation?.city && !isPlaceholder(userLocation.city) ? userLocation.city : null
     const stateName = userLocation?.state || null
-    // Main location name: Show area if available, otherwise show city, otherwise "Select"
-    const mainLocationName = areaName || cityName || "Select"
+    const mainLocationName = areaName || cityName || displayAddressText || (locationLoading ? "Detecting location..." : "Current location")
     // Secondary location: Show only city when area is available (as per design image)
     const secondaryLocation = areaName
         ? (cityName || "")  // Show only city when area is available

@@ -365,7 +365,7 @@ export default function Cart() {
   const [deliveryAddressMode, setDeliveryAddressMode] = useState(() => {
     try {
       if (typeof window === "undefined") return "saved"
-      return localStorage.getItem("deliveryAddressMode") || "saved"
+      return localStorage.getItem("deliveryAddressMode") || "current"
     } catch {
       return "saved"
     }
@@ -715,7 +715,7 @@ export default function Cart() {
     // No dependency array: overlay open/close re-renders Cart via provider state update,
     // even when GPS coords don't move enough to update `currentLocation`.
     try {
-      const mode = localStorage.getItem("deliveryAddressMode") || "saved"
+      const mode = localStorage.getItem("deliveryAddressMode") || "current"
       setDeliveryAddressMode((prev) => (prev === mode ? prev : mode))
     } catch {
       // ignore

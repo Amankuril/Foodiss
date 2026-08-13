@@ -15,13 +15,14 @@ import {
   formatSavedAddress,
   getDeliveryAddressMode,
   notifyUserLocationChanged,
+  setDeliveryAddressMode as persistDeliveryAddressMode,
 } from "@food/utils/deliveryLocationUtils"
 
 const defaultDeliveryLocationContext = {
   liveLocation: null,
   effectiveLocation: null,
-  deliveryAddressMode: "saved",
-  displayAddressText: "Select Location",
+  deliveryAddressMode: "current",
+  displayAddressText: "Detecting location...",
   savedAddressText: "",
   defaultSavedAddress: null,
   loading: true,
@@ -44,6 +45,12 @@ export function DeliveryLocationProvider({ children }) {
   const { location: liveLocation, loading, requestLocation } = useLocation()
   const [deliveryAddressMode, setDeliveryAddressMode] = useState(getDeliveryAddressMode)
   const [addressRevision, setAddressRevision] = useState(0)
+
+  useEffect(() => {
+    // New tab / first load always starts on live GPS unless the user later
+    // explicitly picks a saved address in the location selector.
+    persistDeliveryAddressMode("current")
+  }, [])
 
   useEffect(() => {
     const syncMode = () => setDeliveryAddressMode(getDeliveryAddressMode())
@@ -97,8 +104,9 @@ export function DeliveryLocationProvider({ children }) {
         deliveryAddressMode,
         savedAddressText,
         effectiveLocation,
+        loading,
       }),
-    [deliveryAddressMode, savedAddressText, effectiveLocation],
+    [deliveryAddressMode, savedAddressText, effectiveLocation, loading],
   )
 
   const {

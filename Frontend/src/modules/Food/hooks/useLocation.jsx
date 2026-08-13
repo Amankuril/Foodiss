@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react"
 import { locationAPI, userAPI } from "@food/api"
 import {
   getDeliveryAddressMode,
+  notifyUserLocationChanged,
   persistUserLocation,
   readStoredUserLocation,
   setDeliveryAddressMode,
@@ -47,8 +48,236 @@ let globalReverseGeocodeLastSuccess = null
 // Default behavior: resolve from cache/DB quickly, and when permission is already granted
 // keep a live geolocation watch so zone/location updates react without page refresh.
 const AUTO_START_LIVE_WATCH = true
+const HIGH_ACCURACY_GEO_OPTIONS = {
+  enableHighAccuracy: true,
+  timeout: 15000,
+  maximumAge: 0,
+}
+const LIVE_WATCH_GEO_OPTIONS = {
+  enableHighAccuracy: true,
+  timeout: 15000,
+  maximumAge: 0,
+}
+const GOOD_ACCURACY_M = 50
+const ACCURACY_WATCH_MS = 8000
+const STALE_GPS_MS = 30000
+let globalAccurateGpsInFlight = null
+let globalAccurateGpsLastAt = 0
+const GLOBAL_ACCURATE_GPS_MIN_INTERVAL_MS = 12_000
 
-const reverseGeocodeDirect = async (latitude, longitude) => {
+const isMeaningfulAddressValue = (value) => {
+  const normalized = String(value || "").trim().toLowerCase()
+  return Boolean(
+    normalized &&
+      normalized !== "select location" &&
+      normalized !== "current location" &&
+      !/^-?\d+\.\d+,\s*-?\d+\.\d+$/.test(normalized)
+  )
+}
+
+const buildBigDataCloudAddress = (data, latitude, longitude) => {
+  const administrative = Array.isArray(data?.localityInfo?.administrative)
+    ? data.localityInfo.administrative
+    : []
+  const locality = String(data?.locality || data?.city || "").trim()
+  const city = String(data?.city || data?.locality || "").trim()
+  const state = String(data?.principalSubdivision || "").trim()
+  const postcode = String(data?.postcode || "").trim()
+  const areaCandidates = [
+    data?.locality,
+    data?.city,
+    administrative.find((item) => Number(item?.adminLevel) >= 8)?.name,
+    administrative.find((item) => Number(item?.adminLevel) === 6)?.name,
+    administrative.find((item) => Number(item?.adminLevel) === 5)?.name,
+  ]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+
+  const uniqueParts = []
+  const pushUnique = (value) => {
+    const next = String(value || "").trim()
+    if (!next) return
+    if (uniqueParts.some((part) => part.toLowerCase() === next.toLowerCase())) return
+    uniqueParts.push(next)
+  }
+
+  const explicitFormattedAddress = data?.formattedAddress || data?.lookupSourceAddress || data?.displayName
+  if (isMeaningfulAddressValue(explicitFormattedAddress)) {
+    return {
+      area: areaCandidates[0] || city || "",
+      city: city || "Unknown City",
+      state,
+      country: String(data?.countryName || "").trim(),
+      postalCode: postcode,
+      address: String(explicitFormattedAddress).trim(),
+      formattedAddress: String(explicitFormattedAddress).trim(),
+    }
+  }
+
+  pushUnique(areaCandidates[0])
+  pushUnique(areaCandidates[1])
+  pushUnique(areaCandidates[2])
+  pushUnique(city)
+  pushUnique(state)
+  pushUnique(postcode)
+
+  if (uniqueParts.length === 0) {
+    const fallbackText = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`
+    return {
+      area: "",
+      city: city || "Unknown City",
+      state,
+      country: String(data?.countryName || "").trim(),
+      postalCode: postcode,
+      address: fallbackText,
+      formattedAddress: fallbackText,
+    }
+  }
+
+  return {
+    area: areaCandidates[0] || locality || city || "",
+    city: city || "Unknown City",
+    state,
+    country: String(data?.countryName || "").trim(),
+    postalCode: postcode,
+    address: uniqueParts.join(", "),
+    formattedAddress: uniqueParts.join(", "),
+  }
+}
+
+const buildNominatimAddress = (data) => {
+  if (!data || !data.address) return null
+  const addr = data.address
+  const displayName = data.display_name || ""
+  const streetParts = [addr.road, addr.house_number, addr.building].filter(Boolean)
+  const street = streetParts.join(", ")
+  const area = addr.suburb || addr.neighbourhood || addr.city_district || addr.residential || ""
+  const city = addr.city || addr.town || addr.village || addr.municipality || addr.county || ""
+  const state = addr.state || ""
+  const postcode = addr.postcode || ""
+  if (!isMeaningfulAddressValue(displayName) && !street && !area && !city) return null
+  return {
+    area: area || city || "",
+    city: city || "Unknown City",
+    state,
+    country: addr.country || "",
+    postalCode: postcode,
+    street: street || area || "",
+    address: displayName || [street, area, city, state, postcode].filter(Boolean).join(", "),
+    formattedAddress: displayName || [street, area, city, state, postcode].filter(Boolean).join(", "),
+  }
+}
+
+const buildGoogleAddress = (result) => {
+  if (!result) return null
+  const addressComponents = result.address_components || []
+  const displayName = result.formatted_address || ""
+  let streetNumber = ""
+  let route = ""
+  let premise = ""
+  let neighborhood = ""
+  let sublocality1 = ""
+  let sublocality2 = ""
+  let locality = ""
+  let administrativeArea1 = ""
+  let country = ""
+  let postalCode = ""
+
+  addressComponents.forEach((comp) => {
+    const types = comp.types || []
+    if (types.includes("street_number")) streetNumber = comp.long_name
+    if (types.includes("route")) route = comp.long_name
+    if (types.includes("premise")) premise = comp.long_name
+    if (types.includes("neighborhood")) neighborhood = comp.long_name
+    if (types.includes("sublocality_level_1")) sublocality1 = comp.long_name
+    if (types.includes("sublocality_level_2")) sublocality2 = comp.long_name
+    if (types.includes("locality")) locality = comp.long_name
+    if (types.includes("administrative_area_level_1")) administrativeArea1 = comp.long_name
+    if (types.includes("country")) country = comp.long_name
+    if (types.includes("postal_code")) postalCode = comp.long_name
+  })
+
+  const city = locality || "Unknown City"
+  const state = administrativeArea1 || ""
+  const area = sublocality1 || sublocality2 || neighborhood || ""
+  const street = [streetNumber, route, premise].filter(Boolean).join(", ")
+  if (!isMeaningfulAddressValue(displayName) && !street && !area) return null
+
+  return {
+    area: area || city,
+    city,
+    state,
+    country,
+    postalCode,
+    street: street || area || "",
+    streetNumber,
+    address: displayName,
+    formattedAddress: displayName,
+  }
+}
+
+const clearReverseGeocodeCache = () => {
+  globalReverseGeocodeLastSuccess = null
+  globalReverseGeocodeLastStartAt = 0
+  globalReverseGeocodeLastCoords = { latitude: null, longitude: null }
+  globalReverseGeocodeInFlight = null
+}
+
+const getBestAccuratePosition = (options = {}) => {
+  const geoOptions = {
+    ...HIGH_ACCURACY_GEO_OPTIONS,
+    ...options,
+    enableHighAccuracy: true,
+    maximumAge: 0,
+  }
+
+  return new Promise((resolve, reject) => {
+    let best = null
+    let settled = false
+    let watchId = null
+    let timer = null
+
+    const finish = (pos, err) => {
+      if (settled) return
+      settled = true
+      if (watchId != null) {
+        navigator.geolocation.clearWatch(watchId)
+        watchId = null
+      }
+      if (timer) clearTimeout(timer)
+      if (pos) resolve(pos)
+      else reject(err || { code: 3, message: "Location request timed out" })
+    }
+
+    const consider = (pos) => {
+      if (settled || !pos?.coords) return
+      const age = Date.now() - (pos.timestamp || Date.now())
+      if (age > STALE_GPS_MS) return
+      if (!best || (pos.coords.accuracy || Infinity) < (best.coords.accuracy || Infinity)) {
+        best = pos
+      }
+      if ((pos.coords.accuracy || Infinity) <= GOOD_ACCURACY_M) {
+        finish(pos)
+      }
+    }
+
+    navigator.geolocation.getCurrentPosition(consider, (err) => {
+      if (err?.code === 1) finish(null, err)
+    }, geoOptions)
+
+    watchId = navigator.geolocation.watchPosition(consider, (err) => {
+      if (err?.code === 1) finish(null, err)
+      else if (best) finish(best)
+    }, geoOptions)
+
+    timer = setTimeout(() => {
+      if (best) finish(best)
+      else finish(null, { code: 3, message: "Location request timed out" })
+    }, options.watchMs ?? ACCURACY_WATCH_MS)
+  })
+}
+
+const reverseGeocodeDirect = async (latitude, longitude, forceFresh = false) => {
   const now = Date.now()
   const movedMeters = geoDistanceMeters(
     globalReverseGeocodeLastCoords.latitude,
@@ -58,8 +287,8 @@ const reverseGeocodeDirect = async (latitude, longitude) => {
   )
   const timeSinceLastStart = now - globalReverseGeocodeLastStartAt
 
-  // If we recently geocoded a nearby point, reuse the last successful payload (no network).
   if (
+    !forceFresh &&
     globalReverseGeocodeLastSuccess &&
     movedMeters < GLOBAL_GEOCODE_REUSE_DISTANCE_METERS &&
     timeSinceLastStart < GLOBAL_GEOCODE_MIN_INTERVAL_MS
@@ -67,8 +296,7 @@ const reverseGeocodeDirect = async (latitude, longitude) => {
     return globalReverseGeocodeLastSuccess
   }
 
-  // If another caller is already fetching, wait for it when it's "close enough".
-  if (globalReverseGeocodeInFlight) {
+  if (!forceFresh && globalReverseGeocodeInFlight) {
     const inFlightMoved = geoDistanceMeters(
       globalReverseGeocodeLastCoords.latitude,
       globalReverseGeocodeLastCoords.longitude,
@@ -89,31 +317,39 @@ const reverseGeocodeDirect = async (latitude, longitude) => {
 
   const run = (async () => {
     try {
-      const controller = new AbortController()
-      setTimeout(() => controller.abort(), 3000) // Faster timeout
-
-      const res = await fetch(
-        `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`,
-        { signal: controller.signal }
-      )
-
-      const data = await res.json()
-
-      const value = {
-        city: data.city || data.locality || "Unknown City",
-        state: data.principalSubdivision || "",
-        country: data.countryName || "",
-        area: data.subLocality || data.neighbourhood || data.locality || "",
-        address:
-          data.formattedAddress ||
-          data.address ||
-          `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
-        formattedAddress:
-          data.formattedAddress ||
-          data.address ||
-          `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
+      try {
+        const controller = new AbortController()
+        const abortTimeout = setTimeout(() => controller.abort(), 4000)
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`,
+          {
+            signal: controller.signal,
+            headers: {
+              "Accept-Language": "en",
+              "User-Agent": "Foodiss-Food-App",
+            },
+          }
+        )
+        clearTimeout(abortTimeout)
+        if (res.ok) {
+          const parsed = buildNominatimAddress(await res.json())
+          if (parsed && isMeaningfulAddressValue(parsed.formattedAddress)) {
+            globalReverseGeocodeLastSuccess = parsed
+            return parsed
+          }
+        }
+      } catch {
+        // fall through to BigDataCloud
       }
 
+      const controller = new AbortController()
+      const abortTimeout = setTimeout(() => controller.abort(), 3000)
+      const res = await fetch(
+        `https://api-bdc.io/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`,
+        { signal: controller.signal }
+      )
+      clearTimeout(abortTimeout)
+      const value = buildBigDataCloudAddress(await res.json(), latitude, longitude)
       globalReverseGeocodeLastSuccess = value
       return value
     } catch {
@@ -122,7 +358,6 @@ const reverseGeocodeDirect = async (latitude, longitude) => {
         address: `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
         formattedAddress: `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
       }
-      // Don't cache failures as "success" (keeps retries possible), but still return something usable.
       return fallback
     } finally {
       globalReverseGeocodeInFlight = null
@@ -149,6 +384,8 @@ export function useLocation() {
   const lastDbLocationRef = useRef(null)
   const lastDbUpdateAtRef = useRef(0)
   const lastDbUpdatedCoordsRef = useRef({ latitude: null, longitude: null })
+  const visibilityCleanupRef = useRef(null)
+  const gpsRequestSeqRef = useRef(0)
 
   const GEOCODE_REUSE_DISTANCE_METERS = 120
   const GEOCODE_REUSE_TIME_MS = 10 * 60 * 1000
@@ -285,10 +522,11 @@ export function useLocation() {
   }
 
   const reverseGeocodeWithGoogleMaps = async (latitude, longitude, _options = {}) => {
+    const forceFresh = Boolean(_options?.forceFresh)
     try {
       const apiKey = await getGoogleMapsApiKeySafe()
       if (!apiKey) {
-        return reverseGeocodeDirect(latitude, longitude)
+        return reverseGeocodeDirect(latitude, longitude, forceFresh)
       }
 
       const controller = new AbortController()
@@ -297,31 +535,13 @@ export function useLocation() {
       const res = await fetch(url, { signal: controller.signal })
       const data = await res.json()
       const result = Array.isArray(data?.results) ? data.results[0] : null
-      if (!result) {
-        return reverseGeocodeDirect(latitude, longitude)
+      const parsed = buildGoogleAddress(result)
+      if (parsed && isMeaningfulAddressValue(parsed.formattedAddress)) {
+        return parsed
       }
-
-      const components = Array.isArray(result.address_components) ? result.address_components : []
-      const pick = (...types) =>
-        components.find((c) => types.some((t) => c.types?.includes(t)))?.long_name || ""
-
-      const area =
-        pick("sublocality_level_1", "sublocality", "neighborhood") ||
-        pick("locality")
-      const city = pick("locality") || pick("administrative_area_level_2") || "Unknown City"
-      const state = pick("administrative_area_level_1")
-      const country = pick("country")
-
-      return {
-        city,
-        state,
-        country,
-        area,
-        address: result.formatted_address || `${city}, ${state}`.trim(),
-        formattedAddress: result.formatted_address || `${city}, ${state}`.trim(),
-      }
+      return reverseGeocodeDirect(latitude, longitude, forceFresh)
     } catch {
-      return reverseGeocodeDirect(latitude, longitude)
+      return reverseGeocodeDirect(latitude, longitude, forceFresh)
     }
   }
 
@@ -804,12 +1024,37 @@ export function useLocation() {
 
   /* ===================== MAIN LOCATION ===================== */
   const getLocation = async (updateDB = true, forceFresh = false, showLoading = false) => {
-    // If not forcing fresh, try DB first (faster)
+    const requestId = ++gpsRequestSeqRef.current
+    const isCurrentGpsRequest = () => requestId === gpsRequestSeqRef.current
+
+    // Show last-known location immediately, but never treat DB/cache as the final
+    // answer when we can still read a live GPS fix.
     let dbLocation = !forceFresh ? await fetchLocationFromDB() : null
-    if (dbLocation && !forceFresh) {
+    if (dbLocation) {
       setLocation(dbLocation)
       if (showLoading) setLoading(false)
-      return dbLocation
+    }
+
+    if (forceFresh && Date.now() - globalAccurateGpsLastAt < GLOBAL_ACCURATE_GPS_MIN_INTERVAL_MS) {
+      if (globalAccurateGpsInFlight) {
+        try {
+          const inFlight = await globalAccurateGpsInFlight
+          if (inFlight) {
+            setLocation(inFlight)
+            if (showLoading) setLoading(false)
+            return inFlight
+          }
+        } catch {
+          // Fall through and request a new GPS fix.
+        }
+      } else {
+        const recent = readStoredUserLocation() || dbLocation
+        if (recent) {
+          setLocation(recent)
+          if (showLoading) setLoading(false)
+          return recent
+        }
+      }
     }
 
     if (!navigator.geolocation) {
@@ -825,20 +1070,28 @@ export function useLocation() {
         debugLog(`?? Requesting location${isRetry ? ' (retry with lower accuracy)' : ' (high accuracy)'}...`)
         debugLog(`?? Force fresh: ${forceFresh ? 'YES' : 'NO'}, maximumAge: ${options.maximumAge || (forceFresh ? 0 : 60000)}`)
 
-        // Use cached location if available and not too old (faster response)
-        // If forceFresh is true, don't use cache (maximumAge: 0)
-        const cachedOptions = {
+        const geoOptions = {
+          ...HIGH_ACCURACY_GEO_OPTIONS,
           ...options,
-          maximumAge: forceFresh ? 0 : (options.maximumAge || 60000), // If forceFresh, get fresh location
+          maximumAge: 0,
         }
 
-        navigator.geolocation.getCurrentPosition(
-          async (pos) => {
-            try {
-              const { latitude, longitude, accuracy } = pos.coords
-              const timestamp = pos.timestamp || Date.now()
+        const applyPosition = async (pos) => {
+            if (!isCurrentGpsRequest()) {
+              return null
+            }
+            const { latitude, longitude, accuracy } = pos.coords
+            const timestamp = pos.timestamp || Date.now()
+            const age = Date.now() - timestamp
 
-              debugLog(`? Got location${isRetry ? ' (lower accuracy)' : ' (high accuracy)'}:`, {
+            if (forceFresh && age > STALE_GPS_MS) {
+              debugWarn(`Stale GPS location detected (age: ${age}ms), rejecting...`)
+              throw { code: 3, message: "Stale location" }
+            }
+
+            try {
+
+              debugLog(`Got location${isRetry ? ' (lower accuracy)' : ' (high accuracy)'}:`, {
                 latitude,
                 longitude,
                 accuracy: `${accuracy}m`,
@@ -862,14 +1115,15 @@ export function useLocation() {
                 debugLog("?? Calling reverse geocode with coordinates:", { latitude, longitude })
                 try {
                   addr = await reverseGeocodeWithGoogleMaps(latitude, longitude, {
-                    includePlaceDetails: Boolean(forceFresh && showLoading)
+                    includePlaceDetails: Boolean(forceFresh && showLoading),
+                    forceFresh,
                   })
                   debugLog("? Reverse geocoding successful:", addr)
                 } catch (geocodeErr) {
                   debugWarn("?? Primary geocoding failed, trying fallback:", geocodeErr.message)
                   try {
                     // Fallback to direct reverse geocode (BigDataCloud)
-                    addr = await reverseGeocodeDirect(latitude, longitude)
+                    addr = await reverseGeocodeDirect(latitude, longitude, forceFresh)
                     debugLog("? Fallback geocoding successful:", addr)
 
                     // Validate fallback result - if it still has placeholder values, don't use it
@@ -931,11 +1185,12 @@ export function useLocation() {
                   latitude,
                   longitude,
                   accuracy: accuracy || null,
-                  city: finalLoc.city,
-                  address: finalLoc.address,
-                  formattedAddress: finalLoc.formattedAddress,
+                  city: finalLoc.city && finalLoc.city !== "Select location" ? finalLoc.city : "Current location",
+                  address: finalLoc.address && finalLoc.address !== "Select location" ? finalLoc.address : "Current location",
+                  formattedAddress: finalLoc.formattedAddress && finalLoc.formattedAddress !== "Select location" ? finalLoc.formattedAddress : "Current location",
                 }
                 persistUserLocation(coordOnlyLoc)
+                notifyUserLocationChanged(coordOnlyLoc)
                 setLocation(coordOnlyLoc)
                 setPermissionGranted(true)
                 if (showLoading) setLoading(false)
@@ -945,7 +1200,8 @@ export function useLocation() {
               }
 
               debugLog("?? Saving location:", finalLoc)
-              localStorage.setItem("userLocation", JSON.stringify(finalLoc))
+              persistUserLocation(finalLoc)
+              notifyUserLocationChanged(finalLoc)
               setLocation(finalLoc)
               setPermissionGranted(true)
               if (showLoading) setLoading(false)
@@ -964,7 +1220,7 @@ export function useLocation() {
 
               try {
                 debugLog("?? Last attempt: trying direct reverse geocode...")
-                const lastResortAddr = await reverseGeocodeDirect(latitude, longitude)
+                const lastResortAddr = await reverseGeocodeDirect(latitude, longitude, forceFresh)
 
                 // Check if we got valid data (not just coordinates)
                 if (lastResortAddr &&
@@ -979,7 +1235,8 @@ export function useLocation() {
                     accuracy: pos.coords.accuracy || null
                   }
                   debugLog("? Last resort geocoding succeeded:", lastResortLoc)
-                  localStorage.setItem("userLocation", JSON.stringify(lastResortLoc))
+                  persistUserLocation(lastResortLoc)
+                  notifyUserLocationChanged(lastResortLoc)
                   setLocation(lastResortLoc)
                   setPermissionGranted(true)
                   if (showLoading) setLoading(false)
@@ -1009,8 +1266,9 @@ export function useLocation() {
               // Don't try to update DB with placeholder
               resolve(fallbackLoc)
             }
-          },
-          async (err) => {
+        }
+
+        const onError = async (err) => {
             // If timeout and we haven't retried yet, try with lower accuracy
             if (err.code === 3 && retryCount === 0 && options.enableHighAccuracy) {
               debugWarn("?? High accuracy timeout, retrying with lower accuracy...")
@@ -1028,14 +1286,16 @@ export function useLocation() {
             } else {
               debugError("? Geolocation error:", err.code, err.message)
             }
-            // When user explicitly asked for fresh GPS, don't fall back to stale DB/cache.
             if (forceFresh) {
-              debugWarn("?? Fresh GPS request failed — not using stale fallback")
-              setLocation(null)
-              setError(err.code === 3 ? "Location request timed out. Please try again." : err.message)
-              setPermissionGranted(false)
+              debugWarn("Fresh GPS request failed — keeping last known location")
+              const lastKnown = readStoredUserLocation() || dbLocation
+              if (lastKnown) {
+                setLocation(lastKnown)
+                setPermissionGranted(true)
+              }
+              if (err.code !== 3) setError(err.message)
               if (showLoading) setLoading(false)
-              resolve(null)
+              resolve(lastKnown || null)
               return
             }
 
@@ -1087,19 +1347,25 @@ export function useLocation() {
               if (showLoading) setLoading(false)
               resolve(null)
             }
-          },
-          options
-        )
+        }
+
+        const requestPosition = forceFresh && retryCount === 0
+          ? getBestAccuratePosition({ ...geoOptions, watchMs: ACCURACY_WATCH_MS })
+          : new Promise((res, rej) => {
+              navigator.geolocation.getCurrentPosition(res, rej, geoOptions)
+            })
+
+        requestPosition.then(applyPosition).catch(onError)
       })
     }
 
-    // Try with high accuracy first
-    // If forceFresh is true, don't use cached location (maximumAge: 0)
-    // Otherwise, allow cached location for faster response
-    return getPositionWithRetry({
-      enableHighAccuracy: true,
-      timeout: 20000,
-      maximumAge: forceFresh ? 0 : 60000,
+    globalAccurateGpsLastAt = Date.now()
+    const gpsPromise = getPositionWithRetry(HIGH_ACCURACY_GEO_OPTIONS)
+    globalAccurateGpsInFlight = gpsPromise
+    return gpsPromise.finally(() => {
+      if (globalAccurateGpsInFlight === gpsPromise) {
+        globalAccurateGpsInFlight = null
+      }
     })
   }
 
@@ -1125,10 +1391,6 @@ export function useLocation() {
       watchIdRef.current = navigator.geolocation.watchPosition(
         async (pos) => {
           try {
-            if (getDeliveryAddressMode() === "saved") {
-              return
-            }
-
             const { latitude, longitude, accuracy } = pos.coords
             debugLog("?? Location updated:", { latitude, longitude, accuracy: `${accuracy}m` })
             retryCount = 0
@@ -1318,7 +1580,7 @@ export function useLocation() {
       )
     }
 
-    startWatch({ enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 })
+    startWatch(LIVE_WATCH_GEO_OPTIONS)
   }
 
   const stopWatchingLocation = () => {
@@ -1334,12 +1596,7 @@ export function useLocation() {
 
   useEffect(() => {
     let hasInitialLocation = false
-    let shouldForceRefresh = false
     let initialResolvedLocation = null
-    const isAuthenticatedUser = () => {
-      const token = localStorage.getItem("user_accessToken") || localStorage.getItem("accessToken")
-      return Boolean(token && token !== "null" && token !== "undefined")
-    }
     const hasUsableSavedLocation = (loc) => {
       if (!loc || typeof loc !== "object") return false
       const lat = Number(loc.latitude)
@@ -1369,9 +1626,6 @@ export function useLocation() {
               setLoading(false)
               setPermissionGranted(true)
 
-              if (loc.city === "Current Location" || !loc.formattedAddress || loc.formattedAddress === "Select location") {
-                shouldForceRefresh = true
-              }
             }
           } catch (e) {
             debugWarn("Failed to parse stored location", e)
@@ -1394,33 +1648,53 @@ export function useLocation() {
 
         const currentKnownLocation = initialResolvedLocation || lastDbLocationRef.current || location
         const hasUsableInitialLocation = hasUsableSavedLocation(currentKnownLocation)
-        const shouldPreserveSavedForLoggedIn =
-          isAuthenticatedUser() && hasUsableInitialLocation
 
-        const tryAutoResolveLocation = async () => {
-          // Requirement:
-          // - Guest/open app: auto-fetch current location
-          // - Logged-in user with existing saved location: keep existing location
-          if (!shouldPreserveSavedForLoggedIn) {
-            const freshLoc = await getLocation(true, shouldForceRefresh)
-            if (freshLoc) {
-              setLocation(freshLoc)
-              if (AUTO_START_LIVE_WATCH) startWatchingLocation()
+        const readGeoPermission = async () => {
+          try {
+            if (navigator.permissions?.query) {
+              const result = await navigator.permissions.query({ name: "geolocation" })
+              return result.state
             }
-          } else if (AUTO_START_LIVE_WATCH && getDeliveryAddressMode() !== "saved") {
-            startWatchingLocation()
+          } catch {
+            // Permissions API can throw in some webviews.
           }
+          return "prompt"
         }
 
-        if (navigator.permissions && navigator.permissions.query) {
-          const result = await navigator.permissions.query({ name: 'geolocation' })
-          // `prompt` should also attempt geolocation so browser can ask permission.
-          if (result.state === 'granted' || (!hasUsableInitialLocation && result.state === 'prompt')) {
-            await tryAutoResolveLocation()
+        const refreshLiveGps = async ({ promptIfNeeded = false } = {}) => {
+          if (!navigator.geolocation) return null
+          const permissionState = await readGeoPermission()
+          if (permissionState === "denied") return null
+          if (permissionState === "prompt" && !promptIfNeeded) return null
+
+          const freshLoc = await getLocation(true, true, false)
+          if (freshLoc) {
+            setLocation(freshLoc)
+            persistUserLocation(freshLoc)
+            notifyUserLocationChanged(freshLoc)
           }
-        } else if (!hasUsableInitialLocation) {
-          // Fallback for browsers/webviews that do not support Permissions API.
-          await tryAutoResolveLocation()
+          if (AUTO_START_LIVE_WATCH) startWatchingLocation()
+          return freshLoc
+        }
+
+        // Always ask for a live GPS fix on a new tab / first load.
+        // Cached DB/localStorage is only used as a fast first paint.
+        void refreshLiveGps({ promptIfNeeded: true })
+
+        const onTabVisible = () => {
+          if (typeof document !== "undefined" && document.visibilityState && document.visibilityState !== "visible") {
+            return
+          }
+          void refreshLiveGps({ promptIfNeeded: !hasUsableInitialLocation })
+        }
+
+        window.addEventListener("focus", onTabVisible)
+        window.addEventListener("pageshow", onTabVisible)
+        document.addEventListener("visibilitychange", onTabVisible)
+        visibilityCleanupRef.current = () => {
+          window.removeEventListener("focus", onTabVisible)
+          window.removeEventListener("pageshow", onTabVisible)
+          document.removeEventListener("visibilitychange", onTabVisible)
         }
       } catch (err) {
         debugError("Initialization error", err)
@@ -1433,6 +1707,8 @@ export function useLocation() {
 
     return () => {
       clearTimeout(loadingTimeout)
+      visibilityCleanupRef.current?.()
+      visibilityCleanupRef.current = null
       stopWatchingLocation()
     }
   }, [])
@@ -1458,12 +1734,6 @@ export function useLocation() {
     }
 
     const onModeChanged = () => {
-      const mode = getDeliveryAddressMode()
-      if (mode === "saved") {
-        stopWatchingLocation()
-        return
-      }
-
       if (AUTO_START_LIVE_WATCH) {
         startWatchingLocation()
       }
@@ -1479,21 +1749,32 @@ export function useLocation() {
 
   const requestLocation = async (options = {}) => {
     const live = options?.live === true
-    setLoading(true)
-    setError(null)
+    const fresh = options?.fresh === true || live
+    const silent = options?.silent === true
+    if (!silent) {
+      setLoading(true)
+      setError(null)
+    }
     try {
-      if (live) {
-        setDeliveryAddressMode("current")
-        localStorage.removeItem("userLocation")
+      if (live || fresh) {
+        gpsRequestSeqRef.current += 1
+        globalAccurateGpsLastAt = 0
+        globalAccurateGpsInFlight = null
+        clearReverseGeocodeCache()
         lastResolvedAddressRef.current = null
         lastGeocodedCoordsRef.current = { latitude: null, longitude: null }
+        lastGeocodeAtRef.current = 0
       }
-      const loc = await getLocation(true, live, true)
+      if (live) {
+        setDeliveryAddressMode("current")
+      }
+      const loc = await getLocation(true, fresh, !silent)
       setPermissionGranted(true)
       if (loc) {
         persistUserLocation(loc)
+        notifyUserLocationChanged(loc)
       }
-      if (AUTO_START_LIVE_WATCH && getDeliveryAddressMode() !== "saved") {
+      if (AUTO_START_LIVE_WATCH) {
         startWatchingLocation()
       }
       return loc
@@ -1501,7 +1782,7 @@ export function useLocation() {
       setError(err.message || "Failed to get location")
       throw err
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
 
