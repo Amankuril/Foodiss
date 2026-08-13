@@ -8,6 +8,7 @@ import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider"
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { restaurantAPI } from "@food/api"
+import { getClosesNextDayHint } from "@food/utils/outletTimingUtils"
 import { toast } from "sonner"
 
 const debugLog = (...args) => {}
@@ -298,12 +299,19 @@ export default function OutletTimings() {
                   </div>
                   <div className="min-w-0">
                     {dayData.isOpen ? (
-                      <div className="border border-gray-200 rounded-lg px-3 py-2 bg-gray-50/60 max-w-[200px]">
-                        <DayTimePicker
-                          value={dayData.closingTime}
-                          onChange={(value) => handleTimeChange(day, "closingTime", value)}
-                          placeholder="Closing time"
-                        />
+                      <div className="max-w-[200px]">
+                        <div className="border border-gray-200 rounded-lg px-3 py-2 bg-gray-50/60">
+                          <DayTimePicker
+                            value={dayData.closingTime}
+                            onChange={(value) => handleTimeChange(day, "closingTime", value)}
+                            placeholder="Closing time"
+                          />
+                        </div>
+                        {getClosesNextDayHint(dayData.openingTime, dayData.closingTime) && (
+                          <p className="mt-1.5 text-xs text-gray-500">
+                            {getClosesNextDayHint(dayData.openingTime, dayData.closingTime)}
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <span className="text-sm text-gray-400 pt-2 block">—</span>
@@ -400,6 +408,11 @@ export default function OutletTimings() {
                                 <p className="text-xs text-gray-500">
                                   Current: {formatTime12Hour(dayData.closingTime)}
                                 </p>
+                                {getClosesNextDayHint(dayData.openingTime, dayData.closingTime) && (
+                                  <p className="text-xs text-gray-500">
+                                    {getClosesNextDayHint(dayData.openingTime, dayData.closingTime)}
+                                  </p>
+                                )}
                               </div>
                             </>
                           ) : (

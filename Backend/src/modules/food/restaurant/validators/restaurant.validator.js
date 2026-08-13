@@ -139,9 +139,7 @@ export const validateRestaurantRegisterDto = (body) => {
         if (openingMinutes === closingMinutes) {
             throw new ValidationError('Opening time and closing time cannot be same');
         }
-        if (closingMinutes < openingMinutes) {
-            throw new ValidationError('Closing time cannot be less than opening time');
-        }
+        // close < open is an overnight window (e.g. 22:00 → 06:00) and is allowed.
     }
     return {
         ...data,

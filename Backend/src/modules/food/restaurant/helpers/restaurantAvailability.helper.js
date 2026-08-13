@@ -138,10 +138,14 @@ const checkDayWindow = (restaurant, dayName, nowMinutes) => {
     }
   }
 
+  // Overnight windows (close < open) belong to the opening day until midnight.
+  // Morning leftover is applied from yesterday in getOutletScheduleStatus.
   const isWithin = hasExplicitWindow
     ? openingMinutes !== null &&
       closingMinutes !== null &&
-      isWithinTimeWindow(nowMinutes, openingMinutes, closingMinutes)
+      (closingMinutes < openingMinutes
+        ? nowMinutes >= openingMinutes
+        : isWithinTimeWindow(nowMinutes, openingMinutes, closingMinutes))
     : true;
 
   return {

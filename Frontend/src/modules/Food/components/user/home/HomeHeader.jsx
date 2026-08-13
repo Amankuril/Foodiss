@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MapPin, ChevronDown, Search, Mic, Bell, CheckCircle2, Tag, Gift, AlertCircle, Clock, BellOff, X, ChevronRight, ShoppingBag } from 'lucide-react';
+import { MapPin, ChevronDown, Search, Mic, Bell, CheckCircle2, Tag, Gift, AlertCircle, Clock, BellOff, X, ChevronRight, ShoppingBag, LocateFixed } from 'lucide-react';
+import { isPlaceholderLocationText } from "@food/utils/deliveryLocationUtils";
+import { toast } from "sonner";
 import { Badge } from "@food/components/ui/badge";
 import { Avatar, AvatarFallback } from "@food/components/ui/avatar";
 import foodIcon from "@food/assets/category-icons/food.png";
@@ -24,7 +26,9 @@ export default function HomeHeader({
   setActiveTab,
   location, 
   savedAddressText, 
-  handleLocationClick, 
+  handleLocationClick,
+  onUseCurrentLocation,
+  isFetchingLocation = false, 
   handleSearchFocus, 
   placeholderIndex, 
   placeholders,
@@ -99,6 +103,22 @@ export default function HomeHeader({
   }, [broadcastNotifications, notifications]);
 
   const unreadCount = notifications.filter(n => !n.read).length + broadcastUnreadCount;
+
+  const locationLabel = (() => {
+    if (!isPlaceholderLocationText(savedAddressText)) return savedAddressText
+    if (!isPlaceholderLocationText(location?.formattedAddress)) return location.formattedAddress
+    if (!isPlaceholderLocationText(location?.address)) return location.address
+    if (
+      !isPlaceholderLocationText(location?.area) &&
+      !isPlaceholderLocationText(location?.city) &&
+      location.area !== location.city
+    ) {
+      return `${location.area}, ${location.city}`
+    }
+    if (!isPlaceholderLocationText(location?.area)) return location.area
+    if (!isPlaceholderLocationText(location?.city)) return location.city
+    return isFetchingLocation ? "Detecting location..." : "Select Location"
+  })()
 
   const handleDeleteNotification = (id, source = "local") => {
     if (source === "broadcast") {
@@ -253,24 +273,52 @@ export default function HomeHeader({
 
         {/* Static Overlay Location Row */}
         <div className="absolute top-0 inset-x-0 z-20 px-4 pt-5 flex items-center justify-between gap-3">
-          <div 
-            className="flex items-center gap-1.5 cursor-pointer group min-w-0 flex-1"
-            onClick={handleLocationClick}
-          >
-            <div className="bg-white/20 p-1.5 rounded-full backdrop-blur-md border border-white/20 hover:bg-white/30 transition-colors shadow-sm dark:bg-black/20 dark:border-white/10 dark:hover:bg-white/10 flex-shrink-0">
-              <MapPin className="h-4 w-4 text-gray-900 dark:text-white" />
-            </div>
-            <div className="flex flex-col min-w-0">
-              <div className="flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
-                <span className="text-[10px] font-bold text-gray-900/80 dark:text-white/80 uppercase tracking-wider">Deliver to</span>
-                <ChevronDown className="h-2.5 w-2.5 text-gray-900/80 dark:text-white/80" />
+          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+            <div 
+              className="flex items-center gap-1.5 cursor-pointer group min-w-0 flex-1"
+              onClick={handleLocationClick}
+            >
+              <div className="bg-white/20 p-1.5 rounded-full backdrop-blur-md border border-white/20 hover:bg-white/30 transition-colors shadow-sm dark:bg-black/20 dark:border-white/10 dark:hover:bg-white/10 flex-shrink-0">
+                <MapPin className="h-4 w-4 text-gray-900 dark:text-white" />
               </div>
-              <span className="text-sm font-bold text-gray-900 dark:text-white truncate drop-shadow-sm max-w-full">
-                {savedAddressText || (location?.area && location?.city 
-                  ? `${location.area}, ${location.city}` 
-                  : location?.area || location?.city || "Select Location")}
-              </span>
+              <div className="flex flex-col min-w-0">
+                <div className="flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
+                  <span className="text-[10px] font-bold text-gray-900/80 dark:text-white/80 uppercase tracking-wider">Deliver to</span>
+                  <ChevronDown className="h-2.5 w-2.5 text-gray-900/80 dark:text-white/80" />
+                </div>
+                <span className="text-sm font-bold text-gray-900 dark:text-white truncate drop-shadow-sm max-w-full">
+                  {locationLabel}
+                </span>
+              </div>
             </div>
+            {typeof onUseCurrentLocation === "function" && (
+              <button
+                type="button"
+                onClick={async (event) => {
+                  event.stopPropagation()
+                  if (isFetchingLocation) return
+                  try {
+                    await onUseCurrentLocation()
+                  } catch (err) {
+                    if (err?.code === 1 || String(err?.message || "").toLowerCase().includes("denied")) {
+                      toast.error("Location permission denied. Please allow location access.")
+                      return
+                    }
+                    toast.error("Unable to fetch current location. Please try again.")
+                  }
+                }}
+                disabled={isFetchingLocation}
+                className="h-8 w-8 flex-shrink-0 rounded-full bg-white/20 backdrop-blur-md border border-white/20 text-gray-900 dark:text-white hover:bg-white/30 dark:bg-black/20 dark:border-white/10 dark:hover:bg-white/10 transition-colors disabled:opacity-60 flex items-center justify-center"
+                aria-label="Use current location"
+                title="Use current location"
+              >
+                {isFetchingLocation ? (
+                  <div className="h-3.5 w-3.5 rounded-full border-2 border-gray-900/70 border-t-transparent animate-spin dark:border-white/70 dark:border-t-transparent" />
+                ) : (
+                  <LocateFixed className="h-4 w-4" />
+                )}
+              </button>
+            )}
           </div>
           
           <div className="flex items-center gap-2 flex-shrink-0">

@@ -187,7 +187,9 @@ export const getRestaurantAvailabilityStatus = (restaurant, now = new Date(), op
 
     const isWithin = hasExplicitWindow
       ? (openingMinutes !== null && closingMinutes !== null
-        ? isWithinTimeWindow(nowMinutes, openingMinutes, closingMinutes)
+        ? (closingMinutes < openingMinutes
+          ? nowMinutes >= openingMinutes
+          : isWithinTimeWindow(nowMinutes, openingMinutes, closingMinutes))
         : true)
       : true
 

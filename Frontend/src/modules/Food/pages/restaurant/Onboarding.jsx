@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom"
 import { Input } from "@food/components/ui/input"
 import { Button } from "@food/components/ui/button"
 import { Label } from "@food/components/ui/label"
-import { Image as ImageIcon, Upload, Clock, Calendar as CalendarIcon, BadgeCheck, Wallet, Info, X } from "lucide-react"
+import { Image as ImageIcon, Upload, Clock, Calendar as CalendarIcon, BadgeCheck, Wallet, Info, X, LocateFixed } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@food/components/ui/popover"
 import { Calendar } from "@food/components/ui/calendar"
 import {
@@ -18,6 +18,7 @@ import { MobileTimePicker } from "@mui/x-date-pickers/MobileTimePicker"
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider"
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns"
 import { determineStepToShow } from "@food/utils/onboardingUtils"
+import { getClosesNextDayHint } from "@food/utils/outletTimingUtils"
 import { toast } from "sonner"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
@@ -734,6 +735,7 @@ export default function RestaurantOnboarding() {
   const [locationSearchValue, setLocationSearchValue] = useState("")
   const [locationSuggestions, setLocationSuggestions] = useState([])
   const [isSearchingLocation, setIsSearchingLocation] = useState(false)
+  const [isFetchingCurrentLocation, setIsFetchingCurrentLocation] = useState(false)
   const [isAutoFilledLocationLocked, setIsAutoFilledLocationLocked] = useState(false)
   const [zoneDetectionState, setZoneDetectionState] = useState({
     status: "idle", // idle | detecting | matched | out_of_zone | failed
@@ -794,6 +796,108 @@ export default function RestaurantOnboarding() {
         message: "Could not verify zone right now. Please reselect the location.",
         zoneName: "",
       })
+    }
+  }
+
+  const reverseGeocodeCurrentLocation = async (latitude, longitude) => {
+    if (window.google?.maps?.Geocoder) {
+      try {
+        const geocoder = new window.google.maps.Geocoder()
+        const place = await new Promise((resolve, reject) => {
+          geocoder.geocode({ location: { lat: latitude, lng: longitude } }, (results, status) => {
+            if (status === "OK" && results?.[0]) {
+              resolve(results[0])
+              return
+            }
+            reject(new Error(String(status || "Failed to reverse geocode")))
+          })
+        })
+        const comps = Array.isArray(place?.address_components) ? place.address_components : []
+        const get = (types) => comps.find((c) => types.some((t) => c.types?.includes(t)))?.long_name || ""
+        return {
+          formattedAddress: place?.formatted_address || "",
+          area: get(["sublocality_level_1", "sublocality", "neighborhood"]) || get(["locality"]),
+          city: get(["locality"]) || get(["administrative_area_level_2"]),
+          state: get(["administrative_area_level_1"]) || get(["administrative_area_level_2"]),
+          pincode: get(["postal_code"]),
+        }
+      } catch (err) {
+        debugWarn("Google reverse geocode failed, trying Nominatim:", err)
+      }
+    }
+
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}`
+    const res = await fetch(url, { headers: { Accept: "application/json" } })
+    const json = await res.json()
+    const addr = json?.address || {}
+    return {
+      formattedAddress: json?.display_name || "",
+      area: addr.suburb || addr.neighbourhood || addr.city_district || addr.locality || "",
+      city: addr.city || addr.town || addr.village || "",
+      state: addr.state || "",
+      pincode: addr.postcode || "",
+    }
+  }
+
+  const handleUseCurrentLocation = async () => {
+    if (isFetchingCurrentLocation) return
+    if (!navigator?.geolocation) {
+      toast.error("Current location is not supported on this device")
+      return
+    }
+
+    setIsFetchingCurrentLocation(true)
+    setLocationSuggestions([])
+    try {
+      const position = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 0,
+        })
+      })
+      const latitude = Number(position?.coords?.latitude)
+      const longitude = Number(position?.coords?.longitude)
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        toast.error("Unable to fetch current location. Please try again.")
+        return
+      }
+
+      const addressParts = await reverseGeocodeCurrentLocation(latitude, longitude)
+      const formattedAddress = addressParts?.formattedAddress || ""
+      if (!formattedAddress) {
+        toast.error("Could not find an address for your current location")
+        return
+      }
+
+      setStep1((prev) => ({
+        ...prev,
+        location: {
+          ...prev.location,
+          formattedAddress,
+          addressLine1: formattedAddress,
+          area: addressParts.area || prev.location.area,
+          city: addressParts.city || prev.location.city,
+          state: addressParts.state || prev.location.state,
+          pincode: addressParts.pincode || prev.location.pincode,
+          latitude: Number(latitude.toFixed(6)),
+          longitude: Number(longitude.toFixed(6)),
+        },
+      }))
+      setIsAutoFilledLocationLocked(true)
+      suppressSuggestionFetchRef.current = true
+      setLocationSearchValue(formattedAddress)
+      setLocationSuggestions([])
+      locationSearchInputRef.current?.blur()
+      await detectAndSetZoneForLocation(latitude, longitude)
+    } catch (err) {
+      if (err?.code === 1) {
+        toast.error("Location permission denied. Please allow location access.")
+      } else {
+        toast.error("Unable to fetch current location. Please try again.")
+      }
+    } finally {
+      setIsFetchingCurrentLocation(false)
     }
   }
 
@@ -1497,8 +1601,6 @@ export default function RestaurantOnboarding() {
     if (openingMinutes !== null && closingMinutes !== null) {
       if (openingMinutes === closingMinutes) {
         errors.push("Opening time and closing time cannot be same")
-      } else if (closingMinutes < openingMinutes) {
-        errors.push("Closing time cannot be less than opening time")
       }
     }
     if (!step2.openDays || step2.openDays.length === 0) {
@@ -2006,14 +2108,28 @@ export default function RestaurantOnboarding() {
                     prev.status === "idle" ? prev : { status: "idle", message: "", zoneName: "" }
                   )
                 }}
-                className={ONBOARDING_INPUT}
+                className={`${ONBOARDING_INPUT} pr-11`}
                 placeholder="Start typing your restaurant address..."
               />
-              {isSearchingLocation && (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              {isSearchingLocation && !isFetchingCurrentLocation && (
+                <div className="absolute right-11 top-[calc(0.5rem+1.375rem)] -translate-y-1/2">
                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-[#FA0272] border-t-transparent" />
                 </div>
               )}
+              <button
+                type="button"
+                onClick={handleUseCurrentLocation}
+                disabled={isFetchingCurrentLocation}
+                className="absolute right-2 top-[calc(0.5rem+1.375rem)] -translate-y-1/2 h-8 w-8 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-[#FA0272] transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center"
+                aria-label="Use current location"
+                title="Use current location"
+              >
+                {isFetchingCurrentLocation ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-[#FA0272] border-t-transparent" />
+                ) : (
+                  <LocateFixed className="w-4 h-4" />
+                )}
+              </button>
             </div>
 
             {/* Fallback suggestions dropdown */}
@@ -2750,15 +2866,9 @@ export default function RestaurantOnboarding() {
                 const nextOpening = normalizeTimeValue(val) || ""
                 const openingMinutes = timeStringToMinutes(nextOpening)
                 const closingMinutes = timeStringToMinutes(step2.closingTime)
-                if (openingMinutes !== null && closingMinutes !== null) {
-                  if (openingMinutes === closingMinutes) {
-                    toast.error("Opening time and closing time cannot be same")
-                    return
-                  }
-                  if (closingMinutes < openingMinutes) {
-                    toast.error("Closing time cannot be less than opening time")
-                    return
-                  }
+                if (openingMinutes !== null && closingMinutes !== null && openingMinutes === closingMinutes) {
+                  toast.error("Opening time and closing time cannot be same")
+                  return
                 }
                 setStep2((prev) => ({ ...prev, openingTime: nextOpening }))
               }}
@@ -2770,20 +2880,17 @@ export default function RestaurantOnboarding() {
                 const nextClosing = normalizeTimeValue(val) || ""
                 const openingMinutes = timeStringToMinutes(step2.openingTime)
                 const closingMinutes = timeStringToMinutes(nextClosing)
-                if (openingMinutes !== null && closingMinutes !== null) {
-                  if (openingMinutes === closingMinutes) {
-                    toast.error("Opening time and closing time cannot be same")
-                    return
-                  }
-                  if (closingMinutes < openingMinutes) {
-                    toast.error("Closing time cannot be less than opening time")
-                    return
-                  }
+                if (openingMinutes !== null && closingMinutes !== null && openingMinutes === closingMinutes) {
+                  toast.error("Opening time and closing time cannot be same")
+                  return
                 }
                 setStep2((prev) => ({ ...prev, closingTime: nextClosing }))
               }}
             />
           </div>
+          {getClosesNextDayHint(step2.openingTime, step2.closingTime) && (
+            <p className="text-xs text-gray-500">{getClosesNextDayHint(step2.openingTime, step2.closingTime)}</p>
+          )}
           <div>
             <Label className={ONBOARDING_LABEL}>Estimated delivery time*</Label>
             <Input

@@ -7,6 +7,7 @@ import { Switch } from "@food/components/ui/switch"
 import { Card, CardContent } from "@food/components/ui/card"
 import { restaurantAPI } from "@food/api"
 import {
+  getOutletScheduleStatus,
   getRestaurantOperationalStatus,
   broadcastRestaurantOperationalStatus,
 } from "@food/utils/restaurantOperationalStatus"
@@ -138,49 +139,11 @@ export default function RestaurantStatus() {
   useEffect(() => {
     const checkIfOpen = () => {
       if (typeof document !== "undefined" && document.hidden) return
-      const now = new Date()
-      const currentDayFull = now.toLocaleDateString('en-US', { weekday: 'long' }) // "Monday", "Tuesday", etc.
-      const currentHour = now.getHours()
-      const currentMinute = now.getMinutes()
-      const currentTimeInMinutes = currentHour * 60 + currentMinute
-
-      const outletTimingsData = outletTimings
-
-      if (!outletTimingsData || !outletTimingsData[currentDayFull]) {
-        // No outlet timings configured for today yet
-        setIsDayClosed(false)
-        setIsWithinTimings(true)
-        return
-      }
-
-      const dayData = outletTimingsData[currentDayFull]
-      if (dayData.isOpen === false) {
-        setIsDayClosed(true)
-        setIsWithinTimings(false)
-        return
-      }
-
-      if (!dayData.openingTime || !dayData.closingTime) {
-        setIsDayClosed(false)
-        setIsWithinTimings(true)
-        return
-      }
-
-      const [openHour, openMinute] = dayData.openingTime.split(':').map(Number)
-      const [closeHour, closeMinute] = dayData.closingTime.split(':').map(Number)
-      
-      const openingTimeInMinutes = openHour * 60 + openMinute
-      const closingTimeInMinutes = closeHour * 60 + closeMinute
-
-      let isWithin = false
-      if (closingTimeInMinutes > openingTimeInMinutes) {
-        isWithin = currentTimeInMinutes >= openingTimeInMinutes && currentTimeInMinutes <= closingTimeInMinutes
-      } else {
-        isWithin = currentTimeInMinutes >= openingTimeInMinutes || currentTimeInMinutes <= closingTimeInMinutes
-      }
-
-      setIsDayClosed(false)
-      setIsWithinTimings(isWithin)
+      const schedule = getOutletScheduleStatus(
+        buildRestaurantForAvailability(restaurantData, outletTimings, deliveryStatus),
+      )
+      setIsDayClosed(schedule.isDayClosed)
+      setIsWithinTimings(schedule.isWithinTimings)
     }
 
     checkIfOpen()
@@ -204,7 +167,7 @@ export default function RestaurantStatus() {
       window.removeEventListener("outletTimingsUpdated", handleOutletTimingsUpdate)
       document.removeEventListener("visibilitychange", handleVisibilityChange)
     }
-  }, [currentDateTime, outletTimings])
+  }, [currentDateTime, outletTimings, restaurantData])
 
   // Toggle = manual offline override only.
   // Offline forces closed. Online clears override and resumes outlet timing logic.
@@ -253,23 +216,17 @@ export default function RestaurantStatus() {
     return `${hours12}:${minutesStr} ${period}`
   }
 
-  // Get delivery timings for current day (outlet timings only)
+  // Active slot, including leftover overnight hours from yesterday
   const getCurrentDayTimings = () => {
-    const now = new Date()
-    const currentDayFull = now.toLocaleDateString('en-US', { weekday: 'long' }) // "Monday", "Tuesday", etc.
-    
-    // Single source of truth: outlet timings
-    if (outletTimings && outletTimings[currentDayFull]) {
-      const dayData = outletTimings[currentDayFull]
-      if (dayData.isOpen && dayData.openingTime && dayData.closingTime) {
-        return {
-          openingTime: formatTime12Hour(dayData.openingTime),
-          closingTime: formatTime12Hour(dayData.closingTime)
-        }
-      }
+    const schedule = getOutletScheduleStatus(
+      buildRestaurantForAvailability(restaurantData, outletTimings, deliveryStatus),
+      currentDateTime,
+    )
+    if (!schedule.openingTime || !schedule.closingTime) return null
+    return {
+      openingTime: formatTime12Hour(schedule.openingTime),
+      closingTime: formatTime12Hour(schedule.closingTime),
     }
-
-    return null
   }
 
   // Format address

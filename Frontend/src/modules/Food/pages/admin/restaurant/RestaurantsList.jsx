@@ -5,6 +5,7 @@ import { adminAPI, restaurantAPI, uploadAPI } from "@food/api"
 import { clearModuleAuth } from "@food/utils/auth"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
+import { getClosesNextDayHint, isOvernightTiming } from "@food/utils/outletTimingUtils"
 
 // Import icons from Dashboard-icons
 import locationIcon from "@food/assets/Dashboard-icons/image1.png"
@@ -1013,10 +1014,6 @@ export default function RestaurantsList() {
           alert("Opening time and closing time cannot be same")
           return
         }
-        if (closingMinutes < openingMinutes) {
-          alert("Closing time cannot be less than opening time")
-          return
-        }
       }
 
       const payload = {
@@ -1708,6 +1705,11 @@ export default function RestaurantsList() {
                     <div>
                       <label className="block text-xs text-slate-500 mb-1">Closing Time</label>
                       <input type="text" value={detailsForm.closingTime} onChange={(e) => setDetailsForm((prev) => ({ ...prev, closingTime: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
+                      {getClosesNextDayHint(detailsForm.openingTime, detailsForm.closingTime) && (
+                        <p className="mt-1 text-xs text-slate-500">
+                          {getClosesNextDayHint(detailsForm.openingTime, detailsForm.closingTime)}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label className="block text-xs text-slate-500 mb-1">Estimated Delivery Time</label>
@@ -2097,7 +2099,7 @@ export default function RestaurantsList() {
                                   <span className="text-slate-600 font-medium">{slot.day}</span>
                                   <span className="text-slate-900">
                                     {slot.isOpen
-                                      ? `${formatTime12Hour(slot.openingTime)} – ${formatTime12Hour(slot.closingTime)}`
+                                      ? `${formatTime12Hour(slot.openingTime)} – ${formatTime12Hour(slot.closingTime)}${isOvernightTiming(slot.openingTime, slot.closingTime) ? " (next day)" : ""}`
                                       : "Closed"}
                                   </span>
                                 </div>

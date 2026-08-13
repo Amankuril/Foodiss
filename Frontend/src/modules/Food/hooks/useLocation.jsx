@@ -7,6 +7,7 @@ import {
   readStoredUserLocation,
   setDeliveryAddressMode,
 } from "@food/utils/deliveryLocationUtils"
+import { reverseGeocodeAccurate } from "@food/utils/reverseGeocodeAccurate"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -504,40 +505,13 @@ export function useLocation() {
     }
   }
 
-  // Prefer Google Maps Geocoding API for address accuracy, fallback to existing reverse-geocode.
-  let cachedGoogleMapsApiKey = null
-  const getGoogleMapsApiKeySafe = async () => {
-    if (cachedGoogleMapsApiKey) return cachedGoogleMapsApiKey
-    try {
-      const { getGoogleMapsApiKey } = await import("@food/utils/googleMapsApiKey.js")
-      const key = await getGoogleMapsApiKey()
-      if (key && typeof key === "string") {
-        cachedGoogleMapsApiKey = key
-        return key
-      }
-    } catch {
-      // Ignore key lookup errors; caller will fallback.
-    }
-    return null
-  }
-
+  // Same reverse-geocode path as restaurant onboarding: Google JS Geocoder, then Nominatim.
   const reverseGeocodeWithGoogleMaps = async (latitude, longitude, _options = {}) => {
     const forceFresh = Boolean(_options?.forceFresh)
     try {
-      const apiKey = await getGoogleMapsApiKeySafe()
-      if (!apiKey) {
-        return reverseGeocodeDirect(latitude, longitude, forceFresh)
-      }
-
-      const controller = new AbortController()
-      setTimeout(() => controller.abort(), 6000)
-      const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${encodeURIComponent(latitude)},${encodeURIComponent(longitude)}&key=${encodeURIComponent(apiKey)}`
-      const res = await fetch(url, { signal: controller.signal })
-      const data = await res.json()
-      const result = Array.isArray(data?.results) ? data.results[0] : null
-      const parsed = buildGoogleAddress(result)
-      if (parsed && isMeaningfulAddressValue(parsed.formattedAddress)) {
-        return parsed
+      const accurate = await reverseGeocodeAccurate(latitude, longitude)
+      if (accurate && isMeaningfulAddressValue(accurate.formattedAddress)) {
+        return accurate
       }
       return reverseGeocodeDirect(latitude, longitude, forceFresh)
     } catch {

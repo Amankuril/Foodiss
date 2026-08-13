@@ -133,6 +133,13 @@ export function buildDisplayAddressText({
     return savedAddressText
   }
 
+  if (!isPlaceholderLocationText(effectiveLocation?.formattedAddress)) {
+    return effectiveLocation.formattedAddress
+  }
+  if (!isPlaceholderLocationText(effectiveLocation?.address)) {
+    return effectiveLocation.address
+  }
+
   const area = effectiveLocation?.area
   const city = effectiveLocation?.city
   if (!isPlaceholderLocationText(area) && !isPlaceholderLocationText(city) && area !== city) {
@@ -140,12 +147,6 @@ export function buildDisplayAddressText({
   }
   if (!isPlaceholderLocationText(area)) return area
   if (!isPlaceholderLocationText(city)) return city
-  if (!isPlaceholderLocationText(effectiveLocation?.formattedAddress)) {
-    return effectiveLocation.formattedAddress
-  }
-  if (!isPlaceholderLocationText(effectiveLocation?.address)) {
-    return effectiveLocation.address
-  }
 
   const hasCoords =
     Number.isFinite(Number(effectiveLocation?.latitude)) &&

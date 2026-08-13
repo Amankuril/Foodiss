@@ -1665,6 +1665,8 @@ export default function Home() {
     zoneLoading,
     zoneError,
     requestLocation,
+    requestLiveLocation,
+    loading: locationLoading,
   } = useDeliveryLocation();
 
   const requestLocationRef = useRef(requestLocation);
@@ -3236,6 +3238,8 @@ export default function Home() {
           location={effectiveLocation}
           savedAddressText={headerSavedAddressText}
           handleLocationClick={handleLocationClick}
+          onUseCurrentLocation={requestLiveLocation}
+          isFetchingLocation={locationLoading}
           handleSearchFocus={handleSearchFocus}
           placeholderIndex={placeholderIndex}
           placeholders={placeholders}

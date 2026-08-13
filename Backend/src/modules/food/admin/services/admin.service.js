@@ -130,9 +130,7 @@ const validateOpeningClosingTimes = (openingTime, closingTime) => {
     if (open === close) {
         throw new ValidationError('Opening time and closing time cannot be same');
     }
-    if (close < open) {
-        throw new ValidationError('Closing time cannot be less than opening time');
-    }
+    // close < open is an overnight window (e.g. 22:00 → 06:00) and is allowed.
 };
 
 const normalizeDayName = (value) => {

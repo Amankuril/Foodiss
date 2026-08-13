@@ -7,6 +7,7 @@ import { Input } from "@food/components/ui/input"
 import { Label } from "@food/components/ui/label"
 import { Button } from "@food/components/ui/button"
 import { adminAPI, uploadAPI, zoneAPI } from "@food/api"
+import { getClosesNextDayHint } from "@food/utils/outletTimingUtils"
 import { toast } from "sonner"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => { console.warn(...args) }
@@ -468,8 +469,6 @@ export default function AddRestaurant() {
     if (openingMinutes !== null && closingMinutes !== null) {
       if (openingMinutes === closingMinutes) {
         errors.push("Opening time and closing time cannot be same")
-      } else if (closingMinutes < openingMinutes) {
-        errors.push("Closing time cannot be less than opening time")
       }
     }
     if (!step2.openDays || step2.openDays.length === 0) errors.push("Please select at least one open day")
@@ -1258,15 +1257,9 @@ export default function AddRestaurant() {
                   const nextOpening = e.target.value
                   const closingMinutes = timeStringToMinutes(step2.closingTime)
                   const openingMinutes = timeStringToMinutes(nextOpening)
-                  if (openingMinutes !== null && closingMinutes !== null) {
-                    if (openingMinutes === closingMinutes) {
-                      toast.error("Opening time and closing time cannot be same")
-                      return
-                    }
-                    if (closingMinutes < openingMinutes) {
-                      toast.error("Closing time cannot be less than opening time")
-                      return
-                    }
+                  if (openingMinutes !== null && closingMinutes !== null && openingMinutes === closingMinutes) {
+                    toast.error("Opening time and closing time cannot be same")
+                    return
                   }
                   setStep2({ ...step2, openingTime: nextOpening })
                 }}
@@ -1283,15 +1276,9 @@ export default function AddRestaurant() {
                   const nextClosing = e.target.value
                   const openingMinutes = timeStringToMinutes(step2.openingTime)
                   const closingMinutes = timeStringToMinutes(nextClosing)
-                  if (openingMinutes !== null && closingMinutes !== null) {
-                    if (openingMinutes === closingMinutes) {
-                      toast.error("Opening time and closing time cannot be same")
-                      return
-                    }
-                    if (closingMinutes < openingMinutes) {
-                      toast.error("Closing time cannot be less than opening time")
-                      return
-                    }
+                  if (openingMinutes !== null && closingMinutes !== null && openingMinutes === closingMinutes) {
+                    toast.error("Opening time and closing time cannot be same")
+                    return
                   }
                   setStep2({ ...step2, closingTime: nextClosing })
                 }}
@@ -1300,6 +1287,9 @@ export default function AddRestaurant() {
               />
             </div>
           </div>
+          {getClosesNextDayHint(step2.openingTime, step2.closingTime) && (
+            <p className="text-xs text-gray-500">{getClosesNextDayHint(step2.openingTime, step2.closingTime)}</p>
+          )}
         </div>
 
         <div>
