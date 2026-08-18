@@ -13,7 +13,8 @@ import {
     updateAdminProfileController,
     changeAdminPasswordController,
     requestAdminForgotPasswordOtpController,
-    resetAdminPasswordWithOtpController
+    resetAdminPasswordWithOtpController,
+    verifyAdminForgotPasswordOtpController
 } from './auth.controller.js';
 import { authMiddleware, requireAdmin } from './auth.middleware.js';
 import { authRateLimiter } from '../../middleware/rateLimit.js';
@@ -39,6 +40,7 @@ router.post('/admin/login', authRateLimiter, adminLoginController);
 
 // Admin forgot password (no auth required)
 router.post('/admin/forgot-password/request-otp', authRateLimiter, requestAdminForgotPasswordOtpController);
+router.post('/admin/forgot-password/verify-otp', authRateLimiter, verifyAdminForgotPasswordOtpController);
 router.post('/admin/forgot-password/reset', authRateLimiter, resetAdminPasswordWithOtpController);
 
 // Refresh token

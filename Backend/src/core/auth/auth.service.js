@@ -824,6 +824,42 @@ export const requestAdminForgotPasswordOtp = async (email) => {
   };
 };
 
+/** Admin forgot password: verify OTP only (before showing new-password step). */
+export const verifyAdminForgotPasswordOtp = async (email, otp) => {
+  const normalizedEmail = String(email || "")
+    .trim()
+    .toLowerCase();
+  const otpStr = String(otp || "").replace(/\D/g, "");
+  if (!normalizedEmail || !otpStr) {
+    throw new ValidationError("Email and OTP are required");
+  }
+
+  const record = await AdminResetOtp.findOne({ email: normalizedEmail });
+  if (!record) {
+    throw new AuthError("OTP not found or expired. Please request a new code.");
+  }
+  if (record.expiresAt < new Date()) {
+    await record.deleteOne();
+    throw new AuthError("OTP has expired. Please request a new code.");
+  }
+  if (record.attempts >= (config.otpMaxAttempts || 5)) {
+    throw new AuthError("Too many attempts. Please request a new code.");
+  }
+  if (record.otp !== otpStr) {
+    record.attempts += 1;
+    await record.save();
+    throw new AuthError("Invalid OTP.");
+  }
+
+  const admin = await FoodAdmin.findOne({ email: normalizedEmail });
+  if (!admin) {
+    await record.deleteOne();
+    throw new AuthError("Account not found.");
+  }
+
+  return { success: true, message: "OTP verified successfully." };
+};
+
 /** Admin forgot password: verify OTP and set new password in one call. */
 export const resetAdminPasswordWithOtp = async (email, otp, newPassword) => {
   const normalizedEmail = String(email || "")

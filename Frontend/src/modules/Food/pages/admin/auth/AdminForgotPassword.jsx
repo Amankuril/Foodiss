@@ -175,7 +175,7 @@ export default function AdminForgotPassword() {
     }
   }
 
-  const handleOtpSubmit = (e) => {
+  const handleOtpSubmit = async (e) => {
     e.preventDefault()
     setError("")
 
@@ -184,7 +184,21 @@ export default function AdminForgotPassword() {
       setError("Please enter the complete 6-digit OTP")
       return
     }
-    setStep(3)
+
+    setIsLoading(true)
+    try {
+      await adminAPI.verifyForgotPasswordOtp(email, otpCode)
+      setStep(3)
+    } catch (err) {
+      const message =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        "Invalid OTP. Please try again."
+      setError(message)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const handleResendOtp = async () => {

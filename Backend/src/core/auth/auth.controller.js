@@ -12,6 +12,7 @@ import {
   updateAdminProfile,
   changeAdminPassword,
   requestAdminForgotPasswordOtp,
+  verifyAdminForgotPasswordOtp,
   resetAdminPasswordWithOtp,
 } from "./auth.service.js";
 import { validateUserOtpRequestDto } from "../../dtos/auth/userOtpRequest.dto.js";
@@ -26,6 +27,7 @@ import { validateRefreshTokenDto } from "../../dtos/auth/refreshToken.dto.js";
 import { validateAdminProfileUpdateDto } from "../../dtos/auth/adminProfileUpdate.dto.js";
 import { validateAdminChangePasswordDto } from "../../dtos/auth/adminChangePassword.dto.js";
 import { validateAdminForgotPasswordRequestDto } from "../../dtos/auth/adminForgotPasswordRequest.dto.js";
+import { validateAdminForgotPasswordVerifyDto } from "../../dtos/auth/adminForgotPasswordVerify.dto.js";
 import { validateAdminForgotPasswordResetDto } from "../../dtos/auth/adminForgotPasswordReset.dto.js";
 import { sendResponse } from "../../utils/response.js";
 
@@ -206,6 +208,16 @@ export const resetAdminPasswordWithOtpController = async (req, res, next) => {
     return sendResponse(res, 200, "Password reset successfully", {
       success: true,
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const verifyAdminForgotPasswordOtpController = async (req, res, next) => {
+  try {
+    const { email, otp } = validateAdminForgotPasswordVerifyDto(req.body);
+    const result = await verifyAdminForgotPasswordOtp(email, otp);
+    return sendResponse(res, 200, result.message || "OTP verified successfully", result);
   } catch (error) {
     next(error);
   }

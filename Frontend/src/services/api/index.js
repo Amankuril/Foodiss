@@ -225,6 +225,14 @@ export const adminAPI = {
         .trim()
         .toLowerCase(),
     }),
+  /** POST /food/auth/admin/forgot-password/verify-otp – verify OTP before new-password step */
+  verifyForgotPasswordOtp: (email, otp) =>
+    apiClient.post("/food/auth/admin/forgot-password/verify-otp", {
+      email: String(email || "")
+        .trim()
+        .toLowerCase(),
+      otp: String(otp || "").replace(/\D/g, ""),
+    }),
   /** POST /food/auth/admin/forgot-password/reset – verify OTP and set new password in one call */
   resetPasswordWithOtp: (email, otp, newPassword) =>
     apiClient.post("/food/auth/admin/forgot-password/reset", {
