@@ -2,6 +2,8 @@ import express from 'express';
 import { upload } from '../../../../middleware/upload.js';
 import {
     registerRestaurantController,
+    getOnboardingDraftController,
+    saveOnboardingDraftController,
     createOnboardingFeeOrderController,
     listApprovedRestaurantsController,
     getApprovedRestaurantController,
@@ -87,6 +89,8 @@ const uploadFields = upload.fields([
 ]);
 
 router.post('/register', uploadFields, registerRestaurantController);
+router.get('/onboarding-draft', getOnboardingDraftController);
+router.put('/onboarding-draft', saveOnboardingDraftController);
 router.post('/onboarding-fee/order', createOnboardingFeeOrderController);
 router.post('/unregistered', registerUnregisteredRestaurantController);
 router.post('/upload-attachment', upload.single('file'), uploadRestaurantAttachmentController);

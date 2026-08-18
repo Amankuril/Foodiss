@@ -1661,6 +1661,12 @@ export const restaurantAPI = {
     }
     return apiClient.post("/food/restaurant/register", formData);
   },
+  getOnboardingDraft: (ownerPhone) =>
+    apiClient.get("/food/restaurant/onboarding-draft", {
+      params: { ownerPhone },
+    }),
+  saveOnboardingDraft: (payload) =>
+    apiClient.put("/food/restaurant/onboarding-draft", payload || {}),
   createOnboardingFeeOrder: (ownerPhone) =>
     apiClient.post("/food/restaurant/onboarding-fee/order", { ownerPhone }),
   /** Upload a single attachment for background onboarding uploads */

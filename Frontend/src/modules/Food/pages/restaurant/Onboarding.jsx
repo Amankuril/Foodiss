@@ -13,16 +13,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@food/components/ui/select"
-import { restaurantAPI, zoneAPI, uploadAPI, api } from "@food/api"
+import { restaurantAPI, zoneAPI, uploadAPI } from "@food/api"
 import { MobileTimePicker } from "@mui/x-date-pickers/MobileTimePicker"
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider"
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns"
-import { determineStepToShow } from "@food/utils/onboardingUtils"
+import { getMaxAllowedOnboardingStep } from "@food/utils/onboardingUtils"
 import { getClosesNextDayHint } from "@food/utils/outletTimingUtils"
 import { toast } from "sonner"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
-import { clearModuleAuth } from "@food/utils/auth"
+import { clearModuleAuth, getRestaurantPendingPhone, setRestaurantPendingPhone } from "@food/utils/auth"
 import { logoutRestaurantSession } from "@food/utils/restaurantLogout"
 import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
 import { resolveMediaUrl } from "@food/utils/common"
@@ -249,7 +249,40 @@ const hasSuspiciousEmailTld = (emailValue) => {
   return false
 }
 
-// Helper functions for localStorage
+const toStoredImageValue = (value) => {
+  if (!value) return null
+  if (typeof value === "string" && value.trim()) return value.trim()
+  if (value?.url && typeof value.url === "string" && value.url.trim()) {
+    return {
+      url: value.url.trim(),
+      publicId: value.publicId || null,
+    }
+  }
+  return null
+}
+
+const serializeStep2ForDraft = (step2) => ({
+  ...step2,
+  menuImages: (step2?.menuImages || []).map((img) => toStoredImageValue(img)).filter(Boolean),
+  profileImage: toStoredImageValue(step2?.profileImage),
+})
+
+const serializeStep3ForDraft = (step3) => ({
+  ...step3,
+  panImage: toStoredImageValue(step3?.panImage),
+  gstImage: toStoredImageValue(step3?.gstImage),
+  fssaiImage: toStoredImageValue(step3?.fssaiImage),
+})
+
+const serializeStep4ForDraft = (step4State) => ({
+  onboardingFeePaid: Boolean(step4State?.onboardingFeePaid),
+  onboardingFeeAmount: Number(step4State?.onboardingFeeAmount) || 0,
+  razorpayOrderId: step4State?.razorpayOrderId || "",
+  razorpayPaymentId: step4State?.razorpayPaymentId || "",
+  razorpaySignature: step4State?.razorpaySignature || "",
+  paymentType: step4State?.paymentType || "",
+})
+
 const saveOnboardingToLocalStorage = (step1, step2, step3, currentStep, step4State) => {
   try {
     // Persist only stable URL-based values. File/Blob objects are not serializable and
@@ -517,13 +550,6 @@ export default function RestaurantOnboarding() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [step, setStep] = useState(1)
-
-  useEffect(() => {
-    const s = parseInt(searchParams.get('step'))
-    if (s >= 1 && s <= 4 && s !== step) {
-      setStep(s)
-    }
-  }, [searchParams, step])
 
   useEffect(() => {
     const loadLogo = async () => {
@@ -1100,147 +1126,168 @@ export default function RestaurantOnboarding() {
   }
 
 
-  // Load from localStorage on mount and check URL parameter
+  // Hydrate from the server draft once. Do not re-run on step URL changes.
   useEffect(() => {
+    let cancelled = false
     isRestoringOnboardingRef.current = true
-    setVerifiedPhoneNumber(getVerifiedPhoneFromStoredRestaurant())
+    const verifiedPhone = getVerifiedPhoneFromStoredRestaurant()
+    setVerifiedPhoneNumber(verifiedPhone)
 
-    // Check if step is specified in URL (from OTP login redirect)
-    const stepParam = searchParams.get("step")
-    if (stepParam) {
-      const stepNum = parseInt(stepParam, 10)
-      if (stepNum >= 1 && stepNum <= 3) {
-        setStep(stepNum)
-      }
-    }
+    const applyStep1 = (source = {}) => ({
+      restaurantName: source.restaurantName || "",
+      pureVegRestaurant:
+        typeof source.pureVegRestaurant === "boolean" ? source.pureVegRestaurant : null,
+      ownerName: source.ownerName || "",
+      ownerEmail: source.ownerEmail || "",
+      ownerPhone: normalizePhoneDigits(source.ownerPhone || verifiedPhone),
+      primaryContactNumber: normalizePhoneDigits(source.primaryContactNumber || ""),
+      zoneId: source.zoneId || "",
+      location: {
+        formattedAddress: source.location?.formattedAddress || "",
+        addressLine1: source.location?.addressLine1 || "",
+        addressLine2: source.location?.addressLine2 || "",
+        area: source.location?.area || "",
+        city: source.location?.city || "",
+        state: source.location?.state || "",
+        pincode: source.location?.pincode || "",
+        landmark: source.location?.landmark || "",
+        latitude: source.location?.latitude ?? "",
+        longitude: source.location?.longitude ?? "",
+      },
+    })
 
-    const loadData = async () => {
+    const hydrate = async () => {
+      setLoading(true)
       try {
-        const currentPhone = getVerifiedPhoneFromStoredRestaurant()
-        const localData = loadOnboardingFromLocalStorage()
-        
-        if (localData) {
-          // SECURITY CHECK: If the saved data's phone number doesn't match current login, clear it.
-          // This prevents data leakage when logging in with a different account on the same device.
-          const savedPhone = normalizePhoneDigits(localData.step1?.ownerPhone || "")
-          const normalizedCurrent = normalizePhoneDigits(currentPhone)
-          
-          if (savedPhone && normalizedCurrent && savedPhone !== normalizedCurrent) {
-             debugLog("? Phone mismatch, data belongs to different user. Clearing.")
-             // Be a bit more lenient: only clear if they are substantially different
-             if (savedPhone.slice(-10) !== normalizedCurrent.slice(-10)) {
-               clearOnboardingFromLocalStorage()
-               await clearAllFilesFromDB()
-               return
-             }
-          }
-
-          if (localData.step1) {
-            setStep1((prev) => ({
-              ...prev,
-              restaurantName: localData.step1.restaurantName || "",
-              pureVegRestaurant:
-                typeof localData.step1.pureVegRestaurant === "boolean"
-                  ? localData.step1.pureVegRestaurant
-                  : null,
-              ownerName: localData.step1.ownerName || "",
-              ownerEmail: localData.step1.ownerEmail || "",
-              ownerPhone: localData.step1.ownerPhone || "",
-              primaryContactNumber: localData.step1.primaryContactNumber || "",
-              zoneId: localData.step1.zoneId || "",
-              location: {
-                formattedAddress: localData.step1.location?.formattedAddress || "",
-                addressLine1: localData.step1.location?.addressLine1 || "",
-                addressLine2: localData.step1.location?.addressLine2 || "",
-                area: localData.step1.location?.area || "",
-                city: localData.step1.location?.city || "",
-                state: localData.step1.location?.state || "",
-                pincode: localData.step1.location?.pincode || "",
-                landmark: localData.step1.location?.landmark || "",
-                latitude: localData.step1.location?.latitude ?? "",
-                longitude: localData.step1.location?.longitude ?? "",
-              },
-            }))
-          }
-
-          // Restore Images from IndexedDB
-          const restoredProfileImage = await getFileFromDB("profileImage")
-          const restoredPanImage = await getFileFromDB("panImage")
-          const restoredGstImage = await getFileFromDB("gstImage")
-          const restoredFssaiImage = await getFileFromDB("fssaiImage")
-          
-          const restoredMenuImages = []
-          for (let i = 0; i < 10; i++) {
-            const img = await getFileFromDB(`menuImage_${i}`)
-            if (img) restoredMenuImages.push(img)
-          }
-
-          if (localData.step2) {
-            const urlMenuImages = (localData.step2.menuImages || []).filter(
-              (img) => img?.url || typeof img === "string"
-            )
-            
-            setStep2((prev) => ({
-              ...prev,
-              menuImages: [...urlMenuImages, ...restoredMenuImages],
-              profileImage:
-                restoredProfileImage ||
-                (typeof localData.step2.profileImage === "string" || localData.step2.profileImage?.url
-                  ? localData.step2.profileImage
-                  : null),
-              cuisines: localData.step2.cuisines || [],
-              estimatedDeliveryTime: localData.step2.estimatedDeliveryTime || "",
-              openingTime: normalizeTimeValue(localData.step2.openingTime),
-              closingTime: normalizeTimeValue(localData.step2.closingTime),
-              openDays: localData.step2.openDays || [],
-            }))
-          }
-
-          if (localData.step3) {
-            setStep3((prev) => ({
-              ...prev,
-              panNumber: localData.step3.panNumber || "",
-              nameOnPan: localData.step3.nameOnPan || "",
-              panImage: restoredPanImage || localData.step3.panImage || null,
-              gstRegistered: localData.step3.gstRegistered || false,
-              gstNumber: localData.step3.gstNumber || "",
-              gstLegalName: localData.step3.gstLegalName || "",
-              gstAddress: localData.step3.gstAddress || "",
-              gstImage: restoredGstImage || localData.step3.gstImage || null,
-              fssaiNumber: localData.step3.fssaiNumber || "",
-              fssaiExpiry: localData.step3.fssaiExpiry || "",
-              fssaiImage: restoredFssaiImage || localData.step3.fssaiImage || null,
-              accountNumber: localData.step3.accountNumber || "",
-              confirmAccountNumber: localData.step3.confirmAccountNumber || "",
-              ifscCode: (localData.step3.ifscCode || "").toUpperCase(),
-              accountHolderName: localData.step3.accountHolderName || "",
-              accountType: normalizeAccountTypeValue(localData.step3.accountType || ""),
-            }))
-          }
-
-          if (localData.step4) {
-            setStep4State((prev) => ({
-              ...prev,
-              ...localData.step4,
-              errors: [] // Clear previous errors
-            }))
-          }
-
-          // Only set step from localStorage if URL doesn't have a step parameter
-          if (localData.currentStep && !stepParam) {
-            const restoredStep = Number(localData.currentStep) || 1
-            setStep(Math.min(4, Math.max(1, restoredStep)))
+        const currentPhone = normalizePhoneDigits(
+          verifiedPhone || getRestaurantPendingPhone() || ""
+        )
+        let draft = null
+        if (currentPhone) {
+          try {
+            const res = await restaurantAPI.getOnboardingDraft(currentPhone)
+            draft = res?.data?.data?.draft || null
+          } catch (err) {
+            debugError("Failed to load onboarding draft:", err)
           }
         }
+
+        const localData = loadOnboardingFromLocalStorage()
+        const localPhone = normalizePhoneDigits(localData?.step1?.ownerPhone || "")
+        const localMatchesPhone =
+          Boolean(localData?.step1?.restaurantName) &&
+          (!currentPhone || !localPhone || localPhone === currentPhone)
+
+        const source = draft || (localMatchesPhone ? localData : null)
+        if (!source) {
+          if (currentPhone) {
+            setStep1((prev) => ({ ...prev, ownerPhone: currentPhone }))
+          }
+          setStep(1)
+          navigate("?step=1", { replace: true })
+          return
+        }
+
+        const nextStep1 = applyStep1(source.step1 || {})
+        if (currentPhone && !nextStep1.ownerPhone) nextStep1.ownerPhone = currentPhone
+        setStep1((prev) => ({ ...prev, ...nextStep1, location: { ...prev.location, ...nextStep1.location } }))
+
+        const restoredProfileImage = await getFileFromDB("profileImage")
+        const restoredPanImage = await getFileFromDB("panImage")
+        const restoredGstImage = await getFileFromDB("gstImage")
+        const restoredFssaiImage = await getFileFromDB("fssaiImage")
+        const restoredMenuImages = []
+        for (let i = 0; i < 10; i++) {
+          const img = await getFileFromDB(`menuImage_${i}`)
+          if (img) restoredMenuImages.push(img)
+        }
+
+        const draftMenuImages = (source.step2?.menuImages || []).filter(
+          (img) => img?.url || (typeof img === "string" && img.trim())
+        )
+        const nextStep2 = {
+          menuImages: draftMenuImages.length ? draftMenuImages : restoredMenuImages,
+          profileImage:
+            toStoredImageValue(source.step2?.profileImage) || restoredProfileImage || null,
+          cuisines: source.step2?.cuisines || [],
+          estimatedDeliveryTime: source.step2?.estimatedDeliveryTime || "",
+          openingTime: normalizeTimeValue(source.step2?.openingTime),
+          closingTime: normalizeTimeValue(source.step2?.closingTime),
+          openDays: source.step2?.openDays || [],
+        }
+        setStep2((prev) => ({ ...prev, ...nextStep2 }))
+
+        const nextStep3 = {
+          panNumber: source.step3?.panNumber || "",
+          nameOnPan: source.step3?.nameOnPan || "",
+          panImage: toStoredImageValue(source.step3?.panImage) || restoredPanImage || null,
+          gstRegistered: Boolean(source.step3?.gstRegistered),
+          gstNumber: source.step3?.gstNumber || "",
+          gstLegalName: source.step3?.gstLegalName || "",
+          gstAddress: source.step3?.gstAddress || "",
+          gstImage: toStoredImageValue(source.step3?.gstImage) || restoredGstImage || null,
+          fssaiNumber: source.step3?.fssaiNumber || "",
+          fssaiExpiry: source.step3?.fssaiExpiry || "",
+          fssaiImage: toStoredImageValue(source.step3?.fssaiImage) || restoredFssaiImage || null,
+          accountNumber: source.step3?.accountNumber || "",
+          confirmAccountNumber: source.step3?.confirmAccountNumber || source.step3?.accountNumber || "",
+          ifscCode: (source.step3?.ifscCode || "").toUpperCase(),
+          accountHolderName: source.step3?.accountHolderName || "",
+          accountType: normalizeAccountTypeValue(source.step3?.accountType || ""),
+        }
+        setStep3((prev) => ({ ...prev, ...nextStep3 }))
+
+        if (source.step4) {
+          setStep4State((prev) => ({
+            ...prev,
+            ...serializeStep4ForDraft(source.step4),
+            errors: [],
+          }))
+        }
+
+        const urlStep = parseInt(searchParams.get("step"), 10)
+        const maxAllowed = getMaxAllowedOnboardingStep(nextStep1, nextStep2, nextStep3)
+        const savedStep = Number(source.currentStep) || 1
+        const preferred =
+          Number.isFinite(urlStep) && urlStep >= 1 && urlStep <= 4 ? urlStep : savedStep
+        const resumeStep = Math.min(Math.max(preferred, 1), maxAllowed)
+        setStep(resumeStep)
+        navigate(`?step=${resumeStep}`, { replace: true })
+
+        if (draft?.step1?.ownerPhone) {
+          setRestaurantPendingPhone(normalizePhoneDigits(draft.step1.ownerPhone))
+        }
+
+        if (!draft && source?.step1?.restaurantName && currentPhone) {
+          restaurantAPI
+            .saveOnboardingDraft({
+              ownerPhone: currentPhone,
+              currentStep: resumeStep,
+              completedSteps: Math.max(0, resumeStep - 1),
+              step1: nextStep1,
+              step2: serializeStep2ForDraft(nextStep2),
+              step3: serializeStep3ForDraft(nextStep3),
+              step4: serializeStep4ForDraft(source.step4),
+            })
+            .catch((err) => debugError("Failed to migrate local onboarding draft:", err))
+        }
       } finally {
-        // Prevent save effect from writing default/empty state before restored data settles.
-        isRestoringOnboardingRef.current = false
-        setIsOnboardingHydrated(true)
+        if (!cancelled) {
+          isRestoringOnboardingRef.current = false
+          setIsOnboardingHydrated(true)
+          setLoading(false)
+          setHasExistingRestaurantProfile(false)
+          setIsEditing(true)
+        }
       }
     }
 
-    loadData()
-  }, [searchParams])
+    hydrate()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (!verifiedPhoneNumber) return
@@ -1268,13 +1315,11 @@ export default function RestaurantOnboarding() {
     }
   }, [])
 
-  // Save to localStorage whenever step data changes
+  // Keep in-progress files on this device until Continue uploads them to the draft.
   useEffect(() => {
     if (!isOnboardingHydrated) return
     if (isRestoringOnboardingRef.current) return
-    saveOnboardingToLocalStorage(step1, step2, step3, step, step4State)
-    
-    // Save images to IndexedDB
+
     const saveFiles = async () => {
       if (step2.profileImage && isUploadableFile(step2.profileImage)) {
         await saveFileToDB("profileImage", step2.profileImage)
@@ -1290,11 +1335,11 @@ export default function RestaurantOnboarding() {
       if (step3.fssaiImage && isUploadableFile(step3.fssaiImage)) {
         await saveFileToDB("fssaiImage", step3.fssaiImage)
       }
-      
+
       await persistMenuImagesToDB(step2.menuImages || [])
     }
     saveFiles()
-  }, [isOnboardingHydrated, step1, step2, step3, step, step4State])
+  }, [isOnboardingHydrated, step2, step3])
 
   useEffect(() => {
     syncOnboardingFileCache(step2, step3)
@@ -1312,176 +1357,6 @@ export default function RestaurantOnboarding() {
       previewUrlCacheRef.current.clear()
     }
   }, [])
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true)
-        // Use restaurantAPI.getCurrentRestaurant() to fetch real data
-        const res = await restaurantAPI.getCurrentRestaurant()
-        const data = res?.data?.data?.restaurant || res?.data?.restaurant
-        
-          if (data) {
-            setHasExistingRestaurantProfile(true)
-            const onboardingData = data.onboarding || {}
-            const step1Data = onboardingData.step1 || {}
-            const step2Data = onboardingData.step2 || {}
-            const step3Data = onboardingData.step3 || {}
-            const panData = step3Data.pan || {}
-            const gstData = step3Data.gst || {}
-            const fssaiData = step3Data.fssai || {}
-            const bankData = step3Data.bank || {}
-            const locationData = step1Data.location || data.location || {}
-            const deliveryTimings = step2Data.deliveryTimings || data.deliveryTimings || {}
-
-            setIsEditing(true)
-            // Map Step 1 (Merging with local state - prioritize local edits)
-            setStep1((prev) => ({
-              ...prev,
-              restaurantName: prev.restaurantName || step1Data.restaurantName || data.name || data.restaurantName || "",
-              pureVegRestaurant:
-                typeof prev.pureVegRestaurant === "boolean"
-                  ? prev.pureVegRestaurant
-                  : typeof step1Data.pureVegRestaurant === "boolean"
-                  ? step1Data.pureVegRestaurant
-                  : typeof data.pureVegRestaurant === "boolean"
-                  ? data.pureVegRestaurant
-                  : null,
-              ownerName: prev.ownerName || step1Data.ownerName || data.ownerName || "",
-              ownerEmail: prev.ownerEmail || step1Data.ownerEmail || data.ownerEmail || data.email || "",
-              ownerPhone: prev.ownerPhone || step1Data.ownerPhone || data.ownerPhone || data.phone || "",
-              zoneId: prev.zoneId || step1Data.zoneId || data.zoneId || "",
-              primaryContactNumber:
-                prev.primaryContactNumber ||
-                step1Data.primaryContactNumber ||
-                data.primaryContactNumber ||
-                data.ownerPhone ||
-                data.phone ||
-                "",
-              location: {
-                ...prev.location,
-                formattedAddress:
-                  locationData.formattedAddress ||
-                  locationData.address ||
-                  data.address ||
-                  prev.location?.formattedAddress ||
-                  "",
-                addressLine1: locationData.addressLine1 || data.addressLine1 || prev.location?.addressLine1 || "",
-                addressLine2: locationData.addressLine2 || data.addressLine2 || prev.location?.addressLine2 || "",
-                area: locationData.area || data.area || prev.location?.area || "",
-                city: locationData.city || data.city || prev.location?.city || "",
-                state: locationData.state || data.state || prev.location?.state || "",
-                pincode: locationData.pincode || data.pincode || prev.location?.pincode || "",
-                landmark: locationData.landmark || data.landmark || prev.location?.landmark || "",
-                latitude: locationData.latitude ?? prev.location?.latitude ?? "",
-                longitude: locationData.longitude ?? prev.location?.longitude ?? "",
-              },
-            }))
-
-            // Map Step 2
-            setStep2((prev) => ({
-              ...prev,
-              menuImages:
-                (step2Data.menuImageUrls && step2Data.menuImageUrls.length > 0)
-                  ? step2Data.menuImageUrls
-                  : (data.menuImages && data.menuImages.length > 0)
-                  ? data.menuImages
-                  : prev.menuImages,
-              profileImage: step2Data.profileImageUrl || data.profileImage || prev.profileImage,
-              cuisines:
-                (step2Data.cuisines && step2Data.cuisines.length > 0)
-                  ? step2Data.cuisines
-                  : (data.cuisines && data.cuisines.length > 0)
-                  ? data.cuisines
-                  : prev.cuisines,
-              estimatedDeliveryTime:
-                step2Data.estimatedDeliveryTime ||
-                data.estimatedDeliveryTime ||
-                prev.estimatedDeliveryTime ||
-                "",
-              openingTime: normalizeTimeValue(deliveryTimings.openingTime || data.openingTime) || prev.openingTime,
-              closingTime: normalizeTimeValue(deliveryTimings.closingTime || data.closingTime) || prev.closingTime,
-              openDays:
-                (step2Data.openDays && step2Data.openDays.length > 0)
-                  ? step2Data.openDays
-                  : (data.openDays && data.openDays.length > 0)
-                  ? data.openDays
-                  : prev.openDays,
-            }))
-
-            // Map Step 3
-            setStep3((prev) => ({
-              ...prev,
-              panNumber: panData.panNumber || data.panNumber || prev.panNumber || "",
-              nameOnPan: panData.nameOnPan || data.nameOnPan || prev.nameOnPan || "",
-              panImage: panData.image || data.panImage || prev.panImage || null,
-              gstRegistered:
-                typeof gstData.isRegistered === "boolean"
-                  ? gstData.isRegistered
-                  : typeof data.gstRegistered === "boolean"
-                  ? data.gstRegistered
-                  : (prev.gstRegistered || false),
-              gstNumber: gstData.gstNumber || data.gstNumber || prev.gstNumber || "",
-              gstLegalName: gstData.legalName || data.gstLegalName || prev.gstLegalName || "",
-              gstAddress: gstData.address || data.gstAddress || prev.gstAddress || "",
-              gstImage: gstData.image || data.gstImage || prev.gstImage || null,
-              fssaiNumber: fssaiData.registrationNumber || data.fssaiNumber || prev.fssaiNumber || "",
-              fssaiExpiry:
-                fssaiData.expiryDate
-                  ? String(fssaiData.expiryDate).split("T")[0]
-                  : data.fssaiExpiry
-                  ? String(data.fssaiExpiry).split("T")[0]
-                  : prev.fssaiExpiry,
-              fssaiImage: fssaiData.image || data.fssaiImage || prev.fssaiImage || null,
-              accountNumber: bankData.accountNumber || data.accountNumber || prev.accountNumber || "",
-              confirmAccountNumber:
-                bankData.accountNumber || data.accountNumber || prev.confirmAccountNumber || "",
-              ifscCode: (bankData.ifscCode || data.ifscCode || prev.ifscCode || "").toUpperCase(),
-              accountHolderName:
-                bankData.accountHolderName || data.accountHolderName || prev.accountHolderName || "",
-              accountType: normalizeAccountTypeValue(bankData.accountType || data.accountType || prev.accountType || ""),
-            }))
-
-          // Only determine step automatically if not specified in URL
-          const stepParam = searchParams.get("step")
-          if (!stepParam) {
-            // If already registered/pending, stay on step 1 for editing
-            if (data.status === "approved" || data.status === "pending") {
-               setStep(1)
-            } else {
-               const stepToShow = determineStepToShow({ step1: data, step2: data, step3: data })
-               // Map null (all steps complete) to final step for this flow
-               const targetStep = stepToShow === null ? 3 : stepToShow
-               
-               // Only update if backend says we are further along than current local step
-               // This prevents "downgrading" the step on reload if backend is out of sync
-               setStep(prevStep => {
-                 if (targetStep > prevStep) {
-                   return targetStep
-                 }
-                 return prevStep
-               })
-            }
-          }
-        } else {
-          setIsEditing(true)
-          setHasExistingRestaurantProfile(false)
-        }
-      } catch (err) {
-        setIsEditing(true)
-        setHasExistingRestaurantProfile(false)
-        if (err?.response?.status === 401) {
-          debugError("Authentication error fetching onboarding:", err)
-        } else {
-          debugError("Error fetching onboarding data:", err)
-        }
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchData()
-  }, [searchParams])
 
   const handleUpload = async (file, folder) => {
     try {
@@ -1503,6 +1378,103 @@ export default function RestaurantOnboarding() {
       debugError("Upload error:", errorMsg, err)
       throw new Error(`Image upload failed: ${errorMsg}`)
     }
+  }
+
+  const resolveDraftImage = async (value, folder) => {
+    const stored = toStoredImageValue(value)
+    if (stored) return stored
+    if (!isUploadableFile(value)) return null
+    const uploaded = await handleUpload(value, folder)
+    return toStoredImageValue(uploaded)
+  }
+
+  const persistStepImagesForDraft = async (nextStep2, nextStep3) => {
+    let resolvedStep2 = nextStep2
+    let resolvedStep3 = nextStep3
+
+    const profileImage = nextStep2?.profileImage
+      ? await resolveDraftImage(nextStep2.profileImage, "food/restaurants/profile")
+      : null
+    const menuImages = []
+    for (const img of nextStep2?.menuImages || []) {
+      const resolved = await resolveDraftImage(img, "food/restaurants/menu")
+      if (resolved) menuImages.push(resolved)
+    }
+    resolvedStep2 = {
+      ...nextStep2,
+      profileImage: profileImage || toStoredImageValue(nextStep2?.profileImage),
+      menuImages: menuImages.length ? menuImages : (nextStep2?.menuImages || []).map(toStoredImageValue).filter(Boolean),
+    }
+    if (profileImage || menuImages.length) {
+      setStep2((prev) => ({
+        ...prev,
+        profileImage: resolvedStep2.profileImage || prev.profileImage,
+        menuImages: resolvedStep2.menuImages.length ? resolvedStep2.menuImages : prev.menuImages,
+      }))
+    }
+
+    const panImage = nextStep3?.panImage
+      ? await resolveDraftImage(nextStep3.panImage, "food/restaurants/pan")
+      : toStoredImageValue(nextStep3?.panImage)
+    const fssaiImage = nextStep3?.fssaiImage
+      ? await resolveDraftImage(nextStep3.fssaiImage, "food/restaurants/fssai")
+      : toStoredImageValue(nextStep3?.fssaiImage)
+    const gstImage = nextStep3?.gstImage
+      ? await resolveDraftImage(nextStep3.gstImage, "food/restaurants/gst")
+      : toStoredImageValue(nextStep3?.gstImage)
+    resolvedStep3 = { ...nextStep3, panImage, gstImage, fssaiImage }
+    if (panImage || fssaiImage || gstImage) {
+      setStep3((prev) => ({ ...prev, panImage, gstImage, fssaiImage }))
+    }
+
+    return { resolvedStep2, resolvedStep3 }
+  }
+
+  const persistOnboardingDraft = async ({
+    nextStep = step,
+    completedSteps = Math.max(0, nextStep - 1),
+    nextStep1 = step1,
+    nextStep2 = step2,
+    nextStep3 = step3,
+    nextStep4 = step4State,
+  } = {}) => {
+    const phone = normalizePhoneDigits(
+      nextStep1.ownerPhone || verifiedPhoneNumber || getRestaurantPendingPhone() || ""
+    )
+    if (!phone) {
+      throw new Error("Owner phone is required to save onboarding progress")
+    }
+
+    const { resolvedStep2, resolvedStep3 } = await persistStepImagesForDraft(
+      nextStep2,
+      nextStep3
+    )
+
+    if (completedSteps >= 2) {
+      const hasProfile = Boolean(toStoredImageValue(resolvedStep2.profileImage))
+      const hasMenu = (resolvedStep2.menuImages || []).some((img) => toStoredImageValue(img))
+      if (!hasProfile) throw new Error("Restaurant profile image is required")
+      if (!hasMenu) throw new Error("At least one menu image is required")
+    }
+    if (completedSteps >= 3) {
+      if (!toStoredImageValue(resolvedStep3.panImage)) throw new Error("PAN image is required")
+      if (!toStoredImageValue(resolvedStep3.fssaiImage)) throw new Error("FSSAI image is required")
+      if (resolvedStep3.gstRegistered && !toStoredImageValue(resolvedStep3.gstImage)) {
+        throw new Error("GST image is required when GST registered")
+      }
+    }
+
+    const res = await restaurantAPI.saveOnboardingDraft({
+      ownerPhone: phone,
+      currentStep: nextStep,
+      completedSteps,
+      step1: nextStep1,
+      step2: serializeStep2ForDraft(resolvedStep2),
+      step3: serializeStep3ForDraft(resolvedStep3),
+      step4: serializeStep4ForDraft(nextStep4),
+    })
+    setRestaurantPendingPhone(phone)
+    return res?.data?.data?.draft || null
   }
 
   // Validation functions for each step
@@ -1727,6 +1699,12 @@ export default function RestaurantOnboarding() {
 
 
   const handleFinalSubmit = async () => {
+    if (!step1.restaurantName?.trim()) {
+      toast.error("Restaurant name is required")
+      goToStep(1)
+      return
+    }
+
     if (requiresOnboardingFee && !step4State.onboardingFeePaid) {
       throw new Error("Please pay the onboarding fee before submitting")
     }
@@ -1821,6 +1799,9 @@ export default function RestaurantOnboarding() {
         replace: true,
         state: { phone: normalizePhoneDigits(step1.ownerPhone) },
       })
+    } catch (err) {
+      toast.dismiss(loadingToast)
+      throw err
     } finally {
       setRegistrationProcessing(false)
     }
@@ -1864,15 +1845,23 @@ export default function RestaurantOnboarding() {
           contact: phone,
         },
         handler: (response) => {
-          setStep4State((prev) => ({
-            ...prev,
+          const paidState = {
             onboardingFeePaid: true,
             onboardingFeeAmount: feeTotal,
             razorpayOrderId: response.razorpay_order_id,
             razorpayPaymentId: response.razorpay_payment_id,
             razorpaySignature: response.razorpay_signature,
             paymentType: "razorpay",
+          }
+          setStep4State((prev) => ({
+            ...prev,
+            ...paidState,
           }))
+          persistOnboardingDraft({
+            nextStep: 4,
+            completedSteps: 3,
+            nextStep4: paidState,
+          }).catch((draftErr) => debugError("Failed to save paid onboarding draft:", draftErr))
           toast.success("Onboarding fee paid successfully")
         },
         onClose: () => {
@@ -1923,10 +1912,13 @@ export default function RestaurantOnboarding() {
     setSaving(true)
     try {
       if (step === 1) {
+        await persistOnboardingDraft({ nextStep: 2, completedSteps: 1 })
         goToStep(2)
       } else if (step === 2) {
+        await persistOnboardingDraft({ nextStep: 3, completedSteps: 2 })
         goToStep(3)
       } else if (step === 3) {
+        await persistOnboardingDraft({ nextStep: 4, completedSteps: 3 })
         goToStep(4)
       } else if (step === 4) {
         await handleFinalSubmit()
@@ -1938,6 +1930,7 @@ export default function RestaurantOnboarding() {
         err?.message ||
         "Failed to save onboarding data"
       setError(msg)
+      toast.error(msg)
     } finally {
       setSaving(false)
     }
@@ -3442,8 +3435,16 @@ export default function RestaurantOnboarding() {
           : "Continue"
 
   const handleOnboardingBack = () => {
-    if (step > 1) goToStep(step - 1)
-    else navigate("/food/restaurant/explore")
+    if (step > 1) {
+      const prevStep = step - 1
+      goToStep(prevStep)
+      persistOnboardingDraft({
+        nextStep: prevStep,
+        completedSteps: Math.max(0, prevStep - 1),
+      }).catch((err) => debugError("Failed to save onboarding draft on back:", err))
+    } else {
+      navigate("/food/restaurant/explore")
+    }
   }
 
   return (

@@ -149,7 +149,9 @@ export default function RestaurantOTP() {
         setRestaurantPendingPhone(normalizedPhone)
         sessionStorage.removeItem("restaurantAuthData")
         sessionStorage.removeItem("restaurantLoginPhone")
-        navigate("/food/restaurant/onboarding", { replace: true })
+        const resumeStep = Number(data?.onboardingDraft?.currentStep) || 1
+        const safeStep = resumeStep >= 1 && resumeStep <= 4 ? resumeStep : 1
+        navigate(`/food/restaurant/onboarding?step=${safeStep}`, { replace: true })
         return
       }
 

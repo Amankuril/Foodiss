@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from "react"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
-import { MapPin, Search, Save, Loader2, ArrowLeft, CheckCircle2, AlertTriangle, Navigation } from "lucide-react"
+import { MapPin, Search, Save, Loader2, ArrowLeft, CheckCircle2, AlertTriangle, Navigation, LocateFixed } from "lucide-react"
 import RestaurantNavbar from "@food/components/restaurant/RestaurantNavbar"
 import { restaurantAPI, zoneAPI } from "@food/api"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
 import { Loader } from "@googlemaps/js-api-loader"
+import { toast } from "sonner"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -81,6 +82,7 @@ export default function ZoneSetup() {
   const [mapError, setMapError] = useState("")
   const [zonesDrawnCount, setZonesDrawnCount] = useState(0)
   const [isSelectedInZone, setIsSelectedInZone] = useState(false)
+  const [isFetchingCurrentLocation, setIsFetchingCurrentLocation] = useState(false)
 
   const OUTSIDE_ZONE_MESSAGE =
     "Selected location is outside the service zone. Please pin inside a blue zone boundary."
@@ -276,7 +278,17 @@ export default function ZoneSetup() {
   }
 
   const reverseGeocodeCoordinates = async (lat, lng) => {
-    if (!window.google?.maps) return ""
+    if (!window.google?.maps) {
+      try {
+        const url = `https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}`
+        const res = await fetch(url, { headers: { Accept: "application/json" } })
+        const json = await res.json()
+        return normalizeAddressLabel(json?.display_name || "")
+      } catch (error) {
+        debugWarn("Nominatim reverse geocode failed:", error)
+        return ""
+      }
+    }
 
     try {
       if (!geocoderRef.current) {
@@ -288,9 +300,19 @@ export default function ZoneSetup() {
       })
 
       const formatted = result?.results?.[0]?.formatted_address || ""
-      return normalizeAddressLabel(formatted)
+      const normalized = normalizeAddressLabel(formatted)
+      if (normalized) return normalized
     } catch (error) {
       debugWarn("Reverse geocode failed:", error)
+    }
+
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}`
+      const res = await fetch(url, { headers: { Accept: "application/json" } })
+      const json = await res.json()
+      return normalizeAddressLabel(json?.display_name || "")
+    } catch (error) {
+      debugWarn("Nominatim reverse geocode failed:", error)
       return ""
     }
   }
@@ -423,6 +445,54 @@ export default function ZoneSetup() {
     suggestionsDebounceRef.current = setTimeout(() => {
       fetchSearchSuggestions(value).catch(() => {})
     }, 180)
+  }
+
+  const handleUseCurrentLocation = async () => {
+    if (isFetchingCurrentLocation) return
+    if (!navigator?.geolocation) {
+      toast.error("Current location is not supported on this device")
+      return
+    }
+
+    setIsFetchingCurrentLocation(true)
+    setShowSuggestions(false)
+    setSearchSuggestions([])
+    try {
+      const position = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 0,
+        })
+      })
+      const latitude = Number(position?.coords?.latitude)
+      const longitude = Number(position?.coords?.longitude)
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        toast.error("Unable to fetch current location. Please try again.")
+        return
+      }
+
+      const address = await reverseGeocodeCoordinates(latitude, longitude)
+      if (!address) {
+        toast.error("Could not find an address for your current location")
+        return
+      }
+
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.setCenter({ lat: latitude, lng: longitude })
+        mapInstanceRef.current.setZoom(17)
+      }
+      autocompleteInputRef.current?.blur()
+      await applySelectedLocation(latitude, longitude, address)
+    } catch (err) {
+      if (err?.code === 1) {
+        toast.error("Location permission denied. Please allow location access.")
+      } else {
+        toast.error("Unable to fetch current location. Please try again.")
+      }
+    } finally {
+      setIsFetchingCurrentLocation(false)
+    }
   }
 
   // Initialize Places Autocomplete when map is loaded
@@ -972,8 +1042,22 @@ export default function ZoneSetup() {
                     if (searchSuggestions.length > 0) setShowSuggestions(true)
                   }}
                   placeholder="Search restaurant address..."
-                  className="w-full pl-10 pr-3 py-3 text-sm border border-[#d6dce4] rounded-xl bg-[#f7f8fa] text-[#141820] focus:outline-none focus:ring-2 focus:ring-[#141820]/15 focus:border-[#141820]"
+                  className="w-full pl-10 pr-11 py-3 text-sm border border-[#d6dce4] rounded-xl bg-[#f7f8fa] text-[#141820] focus:outline-none focus:ring-2 focus:ring-[#141820]/15 focus:border-[#141820]"
                 />
+                <button
+                  type="button"
+                  onClick={handleUseCurrentLocation}
+                  disabled={isFetchingCurrentLocation}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-lg text-[#8b98a8] hover:bg-white hover:text-[#141820] transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center"
+                  aria-label="Use current location"
+                  title="Use current location"
+                >
+                  {isFetchingCurrentLocation ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <LocateFixed className="w-4 h-4" />
+                  )}
+                </button>
                 {showSuggestions && searchSuggestions.length > 0 && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-[#d6dce4] rounded-xl shadow-xl z-30 max-h-64 overflow-y-auto">
                     {searchSuggestions.map((suggestion) => (

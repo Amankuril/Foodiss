@@ -4,6 +4,7 @@ import { FoodUser } from "../users/user.model.js";
 import { FoodAdmin } from "../admin/admin.model.js";
 import { AdminResetOtp } from "../admin/adminResetOtp.model.js";
 import { FoodRestaurant } from "../../modules/food/restaurant/models/restaurant.model.js";
+import { getOnboardingDraftByPhone } from "../../modules/food/restaurant/services/onboardingDraft.service.js";
 import { FoodDeliveryPartner } from "../../modules/food/delivery/models/deliveryPartner.model.js";
 import { FoodOrder } from "../../modules/food/orders/models/order.model.js";
 import { FoodReferralSettings } from "../../modules/food/admin/models/referralSettings.model.js";
@@ -333,9 +334,21 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform
     console.log(`[AUTH] No restaurant found. Returning needsRegistration: true`);
     // Phone has been successfully verified, but no restaurant exists yet.
     // Frontend will use this to redirect into registration/onboarding.
+    let onboardingDraft = null;
+    try {
+      onboardingDraft = await getOnboardingDraftByPhone(phone);
+    } catch (draftErr) {
+      console.error("[AUTH] Failed to load onboarding draft during OTP verify:", draftErr);
+    }
     return {
       needsRegistration: true,
       phone,
+      onboardingDraft: onboardingDraft
+        ? {
+            currentStep: onboardingDraft.currentStep,
+            completedSteps: onboardingDraft.completedSteps,
+          }
+        : null,
     };
   }
 

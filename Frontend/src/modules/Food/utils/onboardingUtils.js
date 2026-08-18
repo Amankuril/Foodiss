@@ -1,21 +1,91 @@
-import { api, restaurantAPI } from "@food/api"
-const debugLog = (...args) => {}
-const debugWarn = (...args) => {}
+import { restaurantAPI } from "@food/api"
+import { getRestaurantPendingPhone } from "@food/utils/auth"
 const debugError = (...args) => {}
 
-
-const getOnboardingStorageKey = () => {
-    try {
-      const userStr = localStorage.getItem("restaurant_user")
-      if (userStr) {
-        const user = JSON.parse(userStr)
-        const userId = user._id || user.id
-        if (userId) return `restaurant_onboarding_data_${userId}`
-      }
-    } catch (e) {}
-    return "restaurant_onboarding_data"
+const hasImageValue = (value) => {
+  if (!value) return false
+  if (typeof value === "string") return Boolean(value.trim())
+  if (value?.url && typeof value.url === "string") return Boolean(value.url.trim())
+  if (typeof File !== "undefined" && value instanceof File) return true
+  if (typeof Blob !== "undefined" && value instanceof Blob) return true
+  return false
 }
-const ONBOARDING_STORAGE_KEY = getOnboardingStorageKey()
+
+export const getMaxAllowedOnboardingStep = (step1, step2, step3) => {
+  if (!isFormStepComplete(step1, 1)) return 1
+  if (!isFormStepComplete(step2, 2)) return 2
+  if (!isFormStepComplete(step3, 3)) return 3
+  return 4
+}
+
+export const isFormStepComplete = (stepData, stepNumber) => {
+  if (!stepData) return false
+
+  if (stepNumber === 1) {
+    return Boolean(
+      String(stepData.restaurantName || "").trim() &&
+      typeof stepData.pureVegRestaurant === "boolean" &&
+      String(stepData.ownerName || "").trim() &&
+      String(stepData.ownerEmail || "").trim() &&
+      String(stepData.ownerPhone || "").trim() &&
+      String(stepData.primaryContactNumber || "").trim() &&
+      String(stepData.zoneId || "").trim() &&
+      String(stepData.location?.area || "").trim() &&
+      String(stepData.location?.city || "").trim()
+    )
+  }
+
+  if (stepNumber === 2) {
+    const menuImages = Array.isArray(stepData.menuImages) ? stepData.menuImages : stepData.menuImageUrls
+    return Boolean(
+      (stepData.openingTime || stepData.deliveryTimings?.openingTime) &&
+      (stepData.closingTime || stepData.deliveryTimings?.closingTime) &&
+      Array.isArray(stepData.openDays) &&
+      stepData.openDays.length > 0 &&
+      Array.isArray(menuImages) &&
+      menuImages.some((img) => hasImageValue(img)) &&
+      hasImageValue(stepData.profileImage || stepData.profileImageUrl) &&
+      String(stepData.estimatedDeliveryTime || "").trim()
+    )
+  }
+
+  if (stepNumber === 3) {
+    const pan = stepData.pan || {}
+    const gst = stepData.gst || {}
+    const fssai = stepData.fssai || {}
+    const bank = stepData.bank || {}
+    const panNumber = stepData.panNumber || pan.panNumber
+    const nameOnPan = stepData.nameOnPan || pan.nameOnPan
+    const panImage = stepData.panImage || pan.image
+    const fssaiNumber = stepData.fssaiNumber || fssai.registrationNumber
+    const fssaiImage = stepData.fssaiImage || fssai.image
+    const gstRegistered = typeof stepData.gstRegistered === "boolean"
+      ? stepData.gstRegistered
+      : Boolean(gst.isRegistered)
+    const gstImage = stepData.gstImage || gst.image
+    const accountNumber = stepData.accountNumber || bank.accountNumber
+    const ifscCode = stepData.ifscCode || bank.ifscCode
+    const accountHolderName = stepData.accountHolderName || bank.accountHolderName
+    const accountType = stepData.accountType || bank.accountType
+
+    const hasGstImage = !gstRegistered || hasImageValue(gstImage)
+
+    return Boolean(
+      panNumber &&
+      nameOnPan &&
+      hasImageValue(panImage) &&
+      fssaiNumber &&
+      hasImageValue(fssaiImage) &&
+      hasGstImage &&
+      accountNumber &&
+      ifscCode &&
+      accountHolderName &&
+      accountType
+    )
+  }
+
+  return false
+}
 
 // Helper function to check if a step is complete
 const isStepComplete = (stepData, stepNumber) => {
@@ -243,28 +313,25 @@ export const checkOnboardingStatus = async () => {
     if (restaurant && isRestaurantOnboardingComplete(restaurant)) {
       return null
     }
-
-    const res = await api.get("/restaurant/onboarding")
-    const data = res?.data?.data?.onboarding
-    if (data) {
-      const stepToShow = determineStepToShow(data)
-      return stepToShow
-    }
-    // No onboarding data, start from step 1
-    return 1
   } catch (err) {
-    // If API call fails, check localStorage
-    try {
-      const localData = localStorage.getItem(getOnboardingStorageKey())
-      if (localData) {
-        const parsed = JSON.parse(localData)
-        return parsed.currentStep || 1
-      }
-    } catch (localErr) {
-      debugError("Failed to check localStorage:", localErr)
-    }
-    // Default to step 1 if everything fails
-    return 1
+    debugError("Failed to check restaurant profile:", err)
   }
+
+  try {
+    const phone = String(getRestaurantPendingPhone() || "").replace(/\D/g, "").slice(-10)
+    if (phone) {
+      const res = await restaurantAPI.getOnboardingDraft(phone)
+      const draft = res?.data?.data?.draft
+      if (draft) {
+        const inferred = getMaxAllowedOnboardingStep(draft.step1, draft.step2, draft.step3)
+        const savedStep = Number(draft.currentStep) || inferred
+        return Math.min(Math.max(savedStep, 1), inferred)
+      }
+    }
+  } catch (err) {
+    debugError("Failed to check onboarding draft:", err)
+  }
+
+  return 1
 }
 

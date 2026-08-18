@@ -24,6 +24,7 @@ import {
     isRazorpayConfigured,
     verifyPaymentSignature,
 } from '../../orders/helpers/razorpay.helper.js';
+import { deleteOnboardingDraftByPhone } from './onboardingDraft.service.js';
 
 const normalizeName = (value) =>
     String(value || '')
@@ -928,6 +929,12 @@ export const registerRestaurant = async (payload, files) => {
             });
         } catch (e) {
             console.error('Failed to notify admins of new restaurant registration:', e);
+        }
+
+        try {
+            await deleteOnboardingDraftByPhone(ownerPhoneLast10);
+        } catch (draftErr) {
+            console.error('Failed to clear onboarding draft after registration:', draftErr);
         }
 
         return restaurant.toObject();

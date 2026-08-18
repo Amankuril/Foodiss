@@ -16,7 +16,15 @@ import {
     deleteCurrentRestaurantAccount,
     createRestaurantOnboardingFeeOrder,
 } from '../services/restaurant.service.js';
-import { validateRestaurantRegisterDto } from '../validators/restaurant.validator.js';
+import {
+    getOnboardingDraftByPhone,
+    upsertOnboardingDraft,
+} from '../services/onboardingDraft.service.js';
+import {
+    validateRestaurantRegisterDto,
+    validateOnboardingDraftUpsertDto,
+    validateOnboardingDraftPhone,
+} from '../validators/restaurant.validator.js';
 import { sendResponse, sendError } from '../../../../utils/response.js';
 import { FoodUnregisteredRestaurant } from '../models/unregisteredRestaurant.model.js';
 
@@ -36,6 +44,28 @@ export const registerRestaurantController = async (req, res, next) => {
         const validated = validateRestaurantRegisterDto(req.body);
         const restaurant = await registerRestaurant(validated, req.files);
         return sendResponse(res, 201, 'Restaurant registered successfully', restaurant);
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const getOnboardingDraftController = async (req, res, next) => {
+    try {
+        const ownerPhone = validateOnboardingDraftPhone(
+            req.query?.ownerPhone || req.query?.phone
+        );
+        const draft = await getOnboardingDraftByPhone(ownerPhone);
+        return sendResponse(res, 200, 'Onboarding draft fetched', { draft });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const saveOnboardingDraftController = async (req, res, next) => {
+    try {
+        const validated = validateOnboardingDraftUpsertDto(req.body);
+        const draft = await upsertOnboardingDraft(validated);
+        return sendResponse(res, 200, 'Onboarding draft saved', { draft });
     } catch (error) {
         next(error);
     }

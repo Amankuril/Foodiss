@@ -147,3 +147,29 @@ export const validateRestaurantRegisterDto = (body) => {
     };
 };
 
+const onboardingDraftUpsertSchema = z.object({
+    ownerPhone: phoneSchema,
+    currentStep: z.coerce.number().int().min(1).max(4).optional(),
+    completedSteps: z.coerce.number().int().min(0).max(3).optional(),
+    step1: z.any().optional(),
+    step2: z.any().optional(),
+    step3: z.any().optional(),
+    step4: z.any().optional(),
+});
+
+export const validateOnboardingDraftUpsertDto = (body) => {
+    const result = onboardingDraftUpsertSchema.safeParse(body || {});
+    if (!result.success) {
+        throw new ValidationError(result.error.errors[0].message);
+    }
+    return result.data;
+};
+
+export const validateOnboardingDraftPhone = (value) => {
+    const result = phoneSchema.safeParse(String(value || '').replace(/\D/g, '').slice(-10));
+    if (!result.success) {
+        throw new ValidationError(result.error.errors[0].message);
+    }
+    return result.data;
+};
+
