@@ -62,6 +62,7 @@ export default function AdminForgotPassword() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
+  const [devOtpHint, setDevOtpHint] = useState("")
   const [resendTimer, setResendTimer] = useState(0)
   const [logoUrl, setLogoUrl] = useState(quickSpicyLogo)
   const [themeColor, setThemeColor] = useState(THEME)
@@ -108,7 +109,12 @@ export default function AdminForgotPassword() {
 
     setIsLoading(true)
     try {
-      await adminAPI.requestForgotPasswordOtp(trimmedEmail)
+      const res = await adminAPI.requestForgotPasswordOtp(trimmedEmail)
+      const otpFromApi =
+        res?.data?.data?.otp ??
+        res?.data?.otp ??
+        null
+      setDevOtpHint(otpFromApi ? String(otpFromApi) : "")
       setEmail(trimmedEmail)
       setStep(2)
       setResendTimer(60)
@@ -187,7 +193,12 @@ export default function AdminForgotPassword() {
     setIsLoading(true)
     setError("")
     try {
-      await adminAPI.requestForgotPasswordOtp(email)
+      const res = await adminAPI.requestForgotPasswordOtp(email)
+      const otpFromApi =
+        res?.data?.data?.otp ??
+        res?.data?.otp ??
+        null
+      setDevOtpHint(otpFromApi ? String(otpFromApi) : "")
       setResendTimer(60)
       const timer = setInterval(() => {
         setResendTimer((prev) => {
@@ -393,6 +404,11 @@ export default function AdminForgotPassword() {
                     <p className="text-center text-sm text-gray-500">
                       Sent to <span className="font-medium text-gray-700">{email}</span>
                     </p>
+                    {devOtpHint && import.meta.env.DEV && (
+                      <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-center text-xs text-amber-900">
+                        Dev mode: use OTP <span className="font-semibold tracking-widest">{devOtpHint}</span>
+                      </p>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-between text-sm">

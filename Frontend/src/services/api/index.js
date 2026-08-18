@@ -218,16 +218,16 @@ export const adminAPI = {
   getSidebarBadges: () =>
     apiClient.get("/food/admin/sidebar-badges", { contextModule: "admin" }),
   login: (email, password) => authService.adminLogin(email, password),
-  /** POST /auth/admin/forgot-password/request-otp – only accepts registered admin email */
+  /** POST /food/auth/admin/forgot-password/request-otp – only accepts registered admin email */
   requestForgotPasswordOtp: (email) =>
-    apiClient.post("/auth/admin/forgot-password/request-otp", {
+    apiClient.post("/food/auth/admin/forgot-password/request-otp", {
       email: String(email || "")
         .trim()
         .toLowerCase(),
     }),
-  /** POST /auth/admin/forgot-password/reset – verify OTP and set new password in one call */
+  /** POST /food/auth/admin/forgot-password/reset – verify OTP and set new password in one call */
   resetPasswordWithOtp: (email, otp, newPassword) =>
-    apiClient.post("/auth/admin/forgot-password/reset", {
+    apiClient.post("/food/auth/admin/forgot-password/reset", {
       email: String(email || "")
         .trim()
         .toLowerCase(),

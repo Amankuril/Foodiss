@@ -27,8 +27,16 @@ export const config = {
 
     // OTP
     otpExpiry: process.env.OTP_EXPIRY || '5m',
-    otpMaxAttempts: Number(process.env.OTP_MAX_ATTEMPTS || 5),
-    otpExpiryMinutes: Number(process.env.OTP_EXPIRY_MINUTES || 10),
+    otpMaxAttempts: Number(
+        process.env.OTP_MAX_ATTEMPTS ||
+            process.env.PASSWORD_RESET_MAX_ATTEMPTS ||
+            5,
+    ),
+    otpExpiryMinutes: Number(
+        process.env.OTP_EXPIRY_MINUTES ||
+            process.env.PASSWORD_RESET_OTP_EXPIRY_MINUTES ||
+            10,
+    ),
     otpExpirySeconds: Number(process.env.OTP_EXPIRY_SECONDS || 300),
     otpRateLimit: Number(process.env.OTP_RATE_LIMIT || 3),
     otpRateWindow: Number(process.env.OTP_RATE_WINDOW || 600),

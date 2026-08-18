@@ -809,15 +809,18 @@ export const requestAdminForgotPasswordOtp = async (email) => {
   }
 
   const sent = await sendAdminResetOtpEmail(normalizedEmail, otp);
+  const shouldExposeOtp =
+    config.nodeEnv !== "production" || config.useDefaultOtp;
   if (!sent && !config.useDefaultOtp) {
-    logger.warn(
-      `Admin OTP not sent by email to ${normalizedEmail}; check SMTP config.`,
+    throw new ValidationError(
+      "Could not send reset code email. Check EMAIL_HOST, EMAIL_USER, and EMAIL_PASS in server .env.",
     );
   }
 
   return {
     success: true,
     message: "If this email is registered, you will receive an OTP shortly.",
+    ...(shouldExposeOtp ? { otp } : {}),
   };
 };
 

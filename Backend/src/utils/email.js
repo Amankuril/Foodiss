@@ -15,6 +15,7 @@ function getTransporter() {
         host: emailHost,
         port: emailPort || 587,
         secure: emailPort === 465,
+        requireTLS: emailPort !== 465,
         auth: {
             user: emailUser,
             pass: emailPass
