@@ -3172,6 +3172,9 @@ export default function RestaurantOnboarding() {
                 <div className="bg-white rounded-md shadow-lg border border-gray-200">
                   <Calendar
                     mode="single"
+                    captionLayout="dropdown"
+                    startMonth={new Date()}
+                    endMonth={new Date(new Date().getFullYear() + 25, 11)}
                     selected={parseLocalYMDDate(step3.fssaiExpiry)}
                     disabled={(date) => formatDateToLocalYMD(date) < getTodayLocalYMD()}
                     onSelect={(date) => {
