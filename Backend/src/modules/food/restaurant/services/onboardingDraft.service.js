@@ -3,6 +3,7 @@ import { FoodRestaurant } from '../models/restaurant.model.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
 
 const MAX_JSON_BYTES = 400_000;
+const DRAFT_TTL_MS = 10 * 24 * 60 * 60 * 1000; // 10 days
 
 const normalizePhone = (value) => {
     const digits = String(value || '').replace(/\D/g, '').slice(-15);
@@ -162,6 +163,7 @@ export const upsertOnboardingDraft = async (payload = {}) => {
         ownerPhoneLast10: last10,
         currentStep: nextCurrentStep,
         completedSteps: nextCompletedSteps,
+        expiresAt: new Date(Date.now() + DRAFT_TTL_MS),
     };
     if (payload.step1 !== undefined) update.step1 = step1;
     if (payload.step2 !== undefined) update.step2 = step2;

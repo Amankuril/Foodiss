@@ -86,22 +86,49 @@ let onboardingFileCache = {
 // IndexedDB helpers for persistent file storage
 const ONBOARDING_FILES_DB = "RestaurantOnboardingFiles"
 const FILES_STORE = "files"
+const INDEXEDDB_TIMEOUT_MS = 5000
+
+// IndexedDB requests can silently never fire onsuccess/onerror/onblocked in some
+// environments (e.g. Safari private browsing, in-app webviews). Racing every
+// IndexedDB operation against a timeout stops those cases from hanging the
+// onboarding draft resume flow forever.
+const withTimeout = (promise, ms, fallback = null) => {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms)
+    Promise.resolve(promise)
+      .then((value) => {
+        clearTimeout(timer)
+        resolve(value)
+      })
+      .catch(() => {
+        clearTimeout(timer)
+        resolve(fallback)
+      })
+  })
+}
 
 const openOnboardingFilesDB = () => {
-  return new Promise((resolve, reject) => {
-    try {
-      const request = indexedDB.open(ONBOARDING_FILES_DB, 1)
-      request.onupgradeneeded = (e) => {
-        const db = e.target.result
-        if (!db.objectStoreNames.contains(FILES_STORE)) {
-          db.createObjectStore(FILES_STORE)
+  return withTimeout(
+    new Promise((resolve, reject) => {
+      try {
+        const request = indexedDB.open(ONBOARDING_FILES_DB, 1)
+        request.onupgradeneeded = (e) => {
+          const db = e.target.result
+          if (!db.objectStoreNames.contains(FILES_STORE)) {
+            db.createObjectStore(FILES_STORE)
+          }
         }
+        request.onsuccess = (e) => resolve(e.target.result)
+        request.onerror = (e) => reject(e.target.error)
+        request.onblocked = () => reject(new Error("IndexedDB open blocked"))
+      } catch (err) {
+        reject(err)
       }
-      request.onsuccess = (e) => resolve(e.target.result)
-      request.onerror = (e) => reject(e.target.error)
-    } catch (err) {
-      reject(err)
-    }
+    }),
+    INDEXEDDB_TIMEOUT_MS
+  ).then((db) => {
+    if (!db) throw new Error("IndexedDB open timed out")
+    return db
   })
 }
 
@@ -126,10 +153,13 @@ const getFileFromDB = async (key) => {
     const db = await openOnboardingFilesDB()
     const tx = db.transaction(FILES_STORE, "readonly")
     const request = tx.objectStore(FILES_STORE).get(key)
-    return new Promise((resolve) => {
-      request.onsuccess = () => resolve(request.result)
-      request.onerror = () => resolve(null)
-    })
+    return await withTimeout(
+      new Promise((resolve) => {
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => resolve(null)
+      }),
+      INDEXEDDB_TIMEOUT_MS
+    )
   } catch (err) {
     debugError("IndexedDB load failed:", err)
     return null
@@ -1192,15 +1222,20 @@ export default function RestaurantOnboarding() {
         if (currentPhone && !nextStep1.ownerPhone) nextStep1.ownerPhone = currentPhone
         setStep1((prev) => ({ ...prev, ...nextStep1, location: { ...prev.location, ...nextStep1.location } }))
 
-        const restoredProfileImage = await getFileFromDB("profileImage")
-        const restoredPanImage = await getFileFromDB("panImage")
-        const restoredGstImage = await getFileFromDB("gstImage")
-        const restoredFssaiImage = await getFileFromDB("fssaiImage")
-        const restoredMenuImages = []
-        for (let i = 0; i < 10; i++) {
-          const img = await getFileFromDB(`menuImage_${i}`)
-          if (img) restoredMenuImages.push(img)
-        }
+        const [
+          restoredProfileImage,
+          restoredPanImage,
+          restoredGstImage,
+          restoredFssaiImage,
+          restoredMenuImagesRaw,
+        ] = await Promise.all([
+          getFileFromDB("profileImage"),
+          getFileFromDB("panImage"),
+          getFileFromDB("gstImage"),
+          getFileFromDB("fssaiImage"),
+          Promise.all(Array.from({ length: 10 }, (_, i) => getFileFromDB(`menuImage_${i}`))),
+        ])
+        const restoredMenuImages = restoredMenuImagesRaw.filter(Boolean)
 
         const draftMenuImages = (source.step2?.menuImages || []).filter(
           (img) => img?.url || (typeof img === "string" && img.trim())

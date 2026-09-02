@@ -44,6 +44,10 @@ const restaurantOnboardingDraftSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.Mixed,
             default: null,
         },
+        expiresAt: {
+            type: Date,
+            default: null,
+        },
     },
     {
         collection: 'food_restaurant_onboarding_drafts',
@@ -54,6 +58,13 @@ const restaurantOnboardingDraftSchema = new mongoose.Schema(
 restaurantOnboardingDraftSchema.index(
     { ownerPhoneLast10: 1 },
     { unique: true }
+);
+
+// Abandoned drafts auto-expire; expiresAt is refreshed on every save so it
+// tracks 10 days from the restaurant's last activity, not creation.
+restaurantOnboardingDraftSchema.index(
+    { expiresAt: 1 },
+    { expireAfterSeconds: 0 }
 );
 
 export const FoodRestaurantOnboardingDraft = mongoose.model(
